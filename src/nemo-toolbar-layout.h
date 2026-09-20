@@ -43,6 +43,10 @@ typedef struct {
      * group. These ones act on the files a view is showing, so their action
      * lives in that view's group and changes with the tab on top. */
     gboolean     from_view;
+
+    /* Set on the ones that stand for a submenu rather than a command: the
+     * button drops down the menu the view's UI manager builds at this path. */
+    const gchar *menu_path;
 } NemoToolbarItemInfo;
 
 typedef struct {

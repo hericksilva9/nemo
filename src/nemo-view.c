@@ -160,6 +160,16 @@
 #define NEMO_VIEW_MENU_PATH_PLACES_MOVETO_ENTRIES_PLACEHOLDER "/MenuBar/Edit/File Items Placeholder/MoveToMenu/PlacesMoveToPlaceHolder"
 #define NEMO_VIEW_MENU_PATH_PLACES_COPYTO_ENTRIES_PLACEHOLDER "/MenuBar/Edit/File Items Placeholder/CopyToMenu/PlacesCopyToPlaceHolder"
 
+#define NEMO_VIEW_TOOLBAR_PATH_BOOKMARK_MOVETO_ENTRIES_PLACEHOLDER "/toolbar-move-to/BookmarkMoveToPlaceHolder"
+#define NEMO_VIEW_TOOLBAR_PATH_BOOKMARK_COPYTO_ENTRIES_PLACEHOLDER "/toolbar-copy-to/BookmarkCopyToPlaceHolder"
+#define NEMO_VIEW_TOOLBAR_PATH_PLACES_MOVETO_ENTRIES_PLACEHOLDER "/toolbar-move-to/PlacesMoveToPlaceHolder"
+#define NEMO_VIEW_TOOLBAR_PATH_PLACES_COPYTO_ENTRIES_PLACEHOLDER "/toolbar-copy-to/PlacesCopyToPlaceHolder"
+
+/* One per place the Copy to and Move to menus appear: the selection popup, the
+ * Edit menu and the toolbar buttons, times the two menus. Each needs actions
+ * of its own, since a bookmark entry carries the destination it points at. */
+#define N_COPY_MOVE_MENUS 6
+
 #define MAX_MENU_LEVELS 5
 #define TEMPLATE_LIMIT 30
 
@@ -307,8 +317,8 @@ struct NemoViewDetails
 
 	GList *subdirectory_list;
 
-    guint copy_move_merge_ids[4];
-    GtkActionGroup *copy_move_action_groups[4];
+    guint copy_move_merge_ids[N_COPY_MOVE_MENUS];
+    GtkActionGroup *copy_move_action_groups[N_COPY_MOVE_MENUS];
     guint bookmarks_changed_id;
 
 	GdkPoint context_menu_position;
@@ -2912,7 +2922,7 @@ real_unmerge_menus (NemoView *view)
                 &view->details->actions_merge_id,
                 &view->details->actions_action_group);
     int i;
-    for (i = 0; i < 4; i++) {
+    for (i = 0; i < N_COPY_MOVE_MENUS; i++) {
         nemo_ui_unmerge_ui (ui_manager,
                 &view->details->copy_move_merge_ids[i],
                 &view->details->copy_move_action_groups[i]);
@@ -5218,6 +5228,28 @@ add_bookmark_to_action (NemoView *view, const gchar *bookmark_name, const gchar 
                                             view->details->copy_move_merge_ids[3],
                                             NEMO_VIEW_MENU_PATH_BOOKMARK_COPYTO_ENTRIES_PLACEHOLDER,
                                             view);
+
+    setup_bookmark_action(g_strdup_printf ("BM_MOVETO_TOOLBAR_%d", index),
+                                            bookmark_name,
+                                            icon_name,
+                                            mount_uri,
+                                            ui_manager,
+                                            TRUE,
+                                            view->details->copy_move_action_groups[4],
+                                            view->details->copy_move_merge_ids[4],
+                                            NEMO_VIEW_TOOLBAR_PATH_BOOKMARK_MOVETO_ENTRIES_PLACEHOLDER,
+                                            view);
+
+    setup_bookmark_action(g_strdup_printf ("BM_COPYTO_TOOLBAR_%d", index),
+                                            bookmark_name,
+                                            icon_name,
+                                            mount_uri,
+                                            ui_manager,
+                                            FALSE,
+                                            view->details->copy_move_action_groups[5],
+                                            view->details->copy_move_merge_ids[5],
+                                            NEMO_VIEW_TOOLBAR_PATH_BOOKMARK_COPYTO_ENTRIES_PLACEHOLDER,
+                                            view);
 }
 
 static void
@@ -5269,6 +5301,28 @@ add_place_to_action (NemoView *view, const gchar *bookmark_name, const gchar *ic
                                             view->details->copy_move_merge_ids[3],
                                             NEMO_VIEW_MENU_PATH_PLACES_COPYTO_ENTRIES_PLACEHOLDER,
                                             view);
+
+    setup_bookmark_action(g_strdup_printf ("PLACE_MOVETO_TOOLBAR_%d", index),
+                                            bookmark_name,
+                                            icon_name,
+                                            mount_uri,
+                                            ui_manager,
+                                            TRUE,
+                                            view->details->copy_move_action_groups[4],
+                                            view->details->copy_move_merge_ids[4],
+                                            NEMO_VIEW_TOOLBAR_PATH_PLACES_MOVETO_ENTRIES_PLACEHOLDER,
+                                            view);
+
+    setup_bookmark_action(g_strdup_printf ("PLACE_COPYTO_TOOLBAR_%d", index),
+                                            bookmark_name,
+                                            icon_name,
+                                            mount_uri,
+                                            ui_manager,
+                                            FALSE,
+                                            view->details->copy_move_action_groups[5],
+                                            view->details->copy_move_merge_ids[5],
+                                            NEMO_VIEW_TOOLBAR_PATH_PLACES_COPYTO_ENTRIES_PLACEHOLDER,
+                                            view);
 }
 
 static void
@@ -5287,7 +5341,7 @@ reset_move_copy_to_menu (NemoView *view)
 
     int i;
 
-    for (i = 0; i < 4; i++) {
+    for (i = 0; i < N_COPY_MOVE_MENUS; i++) {
         nemo_ui_unmerge_ui (ui_manager,
                 &view->details->copy_move_merge_ids[i],
                 &view->details->copy_move_action_groups[i]);
@@ -5592,7 +5646,7 @@ disconnect_bookmark_signals (NemoView *view)
     int i;
     GList *list;
     GtkActionGroup *group;
-    for (i = 0; i < 4; i++) {
+    for (i = 0; i < N_COPY_MOVE_MENUS; i++) {
         group = GTK_ACTION_GROUP (view->details->copy_move_action_groups[i]);
         list = gtk_action_group_list_actions (group);
         g_list_foreach (list, disconnect_bookmark, NULL);

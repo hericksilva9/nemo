@@ -298,20 +298,39 @@ toolbar_create_action_button (NemoToolbar *self,
     return button;
 }
 
-#define VIEW_ACTION_NAME_KEY "nemo-toolbar-view-action-name"
+#define VIEW_ITEM_KEY "nemo-toolbar-view-item"
 #define VIEW_ACTION_KEY "nemo-toolbar-view-action"
 
 /* Same reasoning as the user actions above: an action that does not apply to
  * the current location turns invisible, so it is shown greyed out in place
- * rather than left to disappear and shift the rest of the row. */
+ * rather than left to disappear and shift the rest of the row.
+ *
+ * The rest follows the action too, because Move to Trash rewrites its own icon
+ * and tooltip to say Delete on what is already in the trash. The catalog
+ * covers the actions that carry neither, having been written for a menu where
+ * the label does the work. */
 static void
-toolbar_view_action_state_changed (GtkAction  *action,
-                                   GParamSpec *pspec,
-                                   GtkWidget  *button)
+toolbar_view_action_changed (GtkAction  *action,
+                             GParamSpec *pspec,
+                             GtkWidget  *button)
 {
+    const NemoToolbarItemInfo *info;
+    const gchar *icon_name;
+    const gchar *tooltip;
+
+    info = g_object_get_data (G_OBJECT (button), VIEW_ITEM_KEY);
+
     gtk_widget_set_sensitive (button,
                               gtk_action_is_sensitive (action) &&
                               gtk_action_is_visible (action));
+
+    tooltip = gtk_action_get_tooltip (action);
+    gtk_widget_set_tooltip_text (button, tooltip != NULL ? tooltip : _(info->label));
+
+    icon_name = gtk_action_get_icon_name (action);
+    gtk_image_set_from_icon_name (GTK_IMAGE (gtk_button_get_image (GTK_BUTTON (button))),
+                                  icon_name != NULL ? icon_name : info->icon_name,
+                                  GTK_ICON_SIZE_BUTTON);
 }
 
 /* The action a view button drives is owned by whichever view is on top, and is
@@ -321,27 +340,27 @@ static void
 toolbar_bind_view_button (NemoToolbar *self,
                           GtkWidget   *button)
 {
-    const gchar *name;
+    const NemoToolbarItemInfo *info;
     GtkAction *action = NULL;
     GtkAction *bound;
 
-    name = g_object_get_data (G_OBJECT (button), VIEW_ACTION_NAME_KEY);
+    info = g_object_get_data (G_OBJECT (button), VIEW_ITEM_KEY);
     bound = g_object_get_data (G_OBJECT (button), VIEW_ACTION_KEY);
 
     if (self->priv->action_view != NULL) {
-        action = nemo_view_get_action (self->priv->action_view, name);
+        action = nemo_view_get_action (self->priv->action_view, info->id);
     }
 
     if (action == bound) {
         if (action != NULL) {
-            toolbar_view_action_state_changed (action, NULL, button);
+            toolbar_view_action_changed (action, NULL, button);
         }
 
         return;
     }
 
     if (bound != NULL) {
-        g_signal_handlers_disconnect_by_func (bound, toolbar_view_action_state_changed, button);
+        g_signal_handlers_disconnect_by_func (bound, toolbar_view_action_changed, button);
     }
 
     g_object_set_data_full (G_OBJECT (button), VIEW_ACTION_KEY,
@@ -354,14 +373,16 @@ toolbar_bind_view_button (NemoToolbar *self,
         return;
     }
 
-    gtk_widget_set_tooltip_text (button, gtk_action_get_tooltip (action));
-
     g_signal_connect_object (action, "notify::sensitive",
-                             G_CALLBACK (toolbar_view_action_state_changed), button, 0);
+                             G_CALLBACK (toolbar_view_action_changed), button, 0);
     g_signal_connect_object (action, "notify::visible",
-                             G_CALLBACK (toolbar_view_action_state_changed), button, 0);
+                             G_CALLBACK (toolbar_view_action_changed), button, 0);
+    g_signal_connect_object (action, "notify::icon-name",
+                             G_CALLBACK (toolbar_view_action_changed), button, 0);
+    g_signal_connect_object (action, "notify::tooltip",
+                             G_CALLBACK (toolbar_view_action_changed), button, 0);
 
-    toolbar_view_action_state_changed (action, NULL, button);
+    toolbar_view_action_changed (action, NULL, button);
 }
 
 static void
@@ -385,6 +406,39 @@ toolbar_view_button_clicked (GtkButton   *button,
     }
 }
 
+/* Copy to and Move to are submenus, and the one the view builds for its own
+ * menus hangs off a menu item already, so the toolbar has the UI manager build
+ * it a second copy of its own. It is torn down and rebuilt with the view's
+ * menus, so it is fetched afresh on every click. */
+static void
+toolbar_view_menu_button_clicked (GtkButton   *button,
+                                  NemoToolbar *self)
+{
+    const NemoToolbarItemInfo *info;
+    GtkUIManager *ui_manager;
+    GtkWidget *menu;
+
+    if (self->priv->action_view == NULL) {
+        return;
+    }
+
+    ui_manager = nemo_view_get_ui_manager (self->priv->action_view);
+
+    if (ui_manager == NULL) {
+        return;
+    }
+
+    info = g_object_get_data (G_OBJECT (button), VIEW_ITEM_KEY);
+    menu = gtk_ui_manager_get_widget (ui_manager, info->menu_path);
+
+    if (!GTK_IS_MENU (menu)) {
+        return;
+    }
+
+    gtk_menu_popup_at_widget (GTK_MENU (menu), GTK_WIDGET (button),
+                              GDK_GRAVITY_SOUTH_WEST, GDK_GRAVITY_NORTH_WEST, NULL);
+}
+
 static GtkWidget *
 toolbar_create_view_button (NemoToolbar               *self,
                             const NemoToolbarItemInfo *info)
@@ -402,9 +456,11 @@ toolbar_create_view_button (NemoToolbar               *self,
     gtk_widget_set_sensitive (button, FALSE);
     gtk_style_context_add_class (gtk_widget_get_style_context (button), GTK_STYLE_CLASS_FLAT);
 
-    g_object_set_data (G_OBJECT (button), VIEW_ACTION_NAME_KEY, (gpointer) info->id);
+    g_object_set_data (G_OBJECT (button), VIEW_ITEM_KEY, (gpointer) info);
     g_signal_connect (button, "clicked",
-                      G_CALLBACK (toolbar_view_button_clicked), self);
+                      info->menu_path != NULL ? G_CALLBACK (toolbar_view_menu_button_clicked)
+                                              : G_CALLBACK (toolbar_view_button_clicked),
+                      self);
 
     self->priv->view_buttons = g_list_prepend (self->priv->view_buttons, button);
     toolbar_bind_view_button (self, button);

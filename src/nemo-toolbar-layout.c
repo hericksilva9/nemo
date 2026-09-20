@@ -59,8 +59,14 @@ static const CatalogEntry item_catalog[] = {
     { { NEMO_ACTION_CUT,                  N_("Cut"),                   "xsi-edit-cut-symbolic",          FALSE, TRUE }, NULL },
     { { NEMO_ACTION_COPY,                 N_("Copy"),                  "xsi-edit-copy-symbolic",         FALSE, TRUE }, NULL },
     { { NEMO_ACTION_PASTE,                N_("Paste"),                 "xsi-edit-paste-symbolic",        FALSE, TRUE }, NULL },
-    /* The menu item this comes from has no icon of its own. */
+    /* The menu items these come from have no icon of their own. */
     { { NEMO_ACTION_RENAME,               N_("Rename"),                "xsi-document-edit-symbolic",     FALSE, TRUE }, NULL },
+    { { NEMO_ACTION_DUPLICATE,            N_("Duplicate"),             "xsi-drive-multidisk-symbolic",   FALSE, TRUE }, NULL },
+    { { NEMO_ACTION_COPY_TO_MENU,         N_("Copy to"),               "xsi-send-to-symbolic",           FALSE, TRUE, "/toolbar-copy-to" }, NULL },
+    { { NEMO_ACTION_MOVE_TO_MENU,         N_("Move to"),               "xsi-move-symbolic",              FALSE, TRUE, "/toolbar-move-to" }, NULL },
+    /* Follows its action's icon: it becomes Delete on what is already in the
+     * trash. */
+    { { NEMO_ACTION_TRASH,                N_("Move to Trash"),         "xsi-user-trash-symbolic",        FALSE, TRUE }, NULL },
     { { NEMO_ACTION_SEARCH,               N_("Search"),                "xsi-edit-find-symbolic",         TRUE  }, NEMO_PREFERENCES_SHOW_SEARCH_ICON_TOOLBAR },
     { { NEMO_ACTION_SHOW_THUMBNAILS,      N_("Show Thumbnails"),       "xsi-preview-symbolic",           TRUE  }, NEMO_PREFERENCES_SHOW_SHOW_THUMBNAILS_TOOLBAR },
     { { NEMO_ACTION_SHOW_HIDE_EXTRA_PANE, N_("Extra Pane"),            "xsi-view-dual-symbolic",         TRUE  }, NEMO_PREFERENCES_SHOW_TOGGLE_EXTRA_PANE_TOOLBAR },
