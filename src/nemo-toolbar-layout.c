@@ -56,6 +56,11 @@ static const CatalogEntry item_catalog[] = {
     { { NEMO_ACTION_TOGGLE_LOCATION,      N_("Location entry toggle"), "nemo-location-symbolic",         FALSE }, NEMO_PREFERENCES_SHOW_EDIT_ICON_TOOLBAR },
     { { NEMO_ACTION_OPEN_IN_TERMINAL,     N_("Open in terminal"),      "xsi-utilities-terminal-symbolic", FALSE }, NEMO_PREFERENCES_SHOW_OPEN_IN_TERMINAL_TOOLBAR },
     { { NEMO_ACTION_NEW_FOLDER,           N_("New folder"),            "xsi-folder-new-symbolic",        FALSE }, NEMO_PREFERENCES_SHOW_NEW_FOLDER_ICON_TOOLBAR },
+    { { NEMO_ACTION_CUT,                  N_("Cut"),                   "xsi-edit-cut-symbolic",          FALSE, TRUE }, NULL },
+    { { NEMO_ACTION_COPY,                 N_("Copy"),                  "xsi-edit-copy-symbolic",         FALSE, TRUE }, NULL },
+    { { NEMO_ACTION_PASTE,                N_("Paste"),                 "xsi-edit-paste-symbolic",        FALSE, TRUE }, NULL },
+    /* The menu item this comes from has no icon of its own. */
+    { { NEMO_ACTION_RENAME,               N_("Rename"),                "xsi-document-edit-symbolic",     FALSE, TRUE }, NULL },
     { { NEMO_ACTION_SEARCH,               N_("Search"),                "xsi-edit-find-symbolic",         TRUE  }, NEMO_PREFERENCES_SHOW_SEARCH_ICON_TOOLBAR },
     { { NEMO_ACTION_SHOW_THUMBNAILS,      N_("Show Thumbnails"),       "xsi-preview-symbolic",           TRUE  }, NEMO_PREFERENCES_SHOW_SHOW_THUMBNAILS_TOOLBAR },
     { { NEMO_ACTION_SHOW_HIDE_EXTRA_PANE, N_("Extra Pane"),            "xsi-view-dual-symbolic",         TRUE  }, NEMO_PREFERENCES_SHOW_TOGGLE_EXTRA_PANE_TOOLBAR },
@@ -142,6 +147,12 @@ build_default_bars (void)
 
     for (i = 0; i < G_N_ELEMENTS (item_catalog); i++) {
         const CatalogEntry *entry = &item_catalog[i];
+
+        /* The default reproduces the toolbar Nemo used to ship, so items it
+         * never had are left for the user to add. */
+        if (entry->info.from_view) {
+            continue;
+        }
 
         if (entry->legacy_pref_key != NULL &&
             !g_settings_get_boolean (nemo_preferences, entry->legacy_pref_key)) {

@@ -62,6 +62,10 @@ struct _NemoToolbarPriv {
     NemoActionManager *action_manager;
     NemoView *action_view; /* weak: whichever tab is on top */
 
+    /* Buttons for the actions that belong to a view rather than to the
+     * window, kept so they can be rebound when the view underneath changes. */
+    GList *view_buttons;
+
 	gboolean show_main_bar;
 	gboolean show_location_entry;
     gboolean show_root_bar;
@@ -87,6 +91,7 @@ G_DEFINE_TYPE (NemoToolbar, nemo_toolbar, GTK_TYPE_BOX);
 
 static void toolbar_forget_action_view (NemoToolbar *self);
 static void toolbar_sync_action_states (NemoToolbar *self);
+static void toolbar_sync_view_state (NemoToolbar *self);
 
 static void
 nemo_toolbar_update_root_state (NemoToolbar *self)
@@ -293,6 +298,120 @@ toolbar_create_action_button (NemoToolbar *self,
     return button;
 }
 
+#define VIEW_ACTION_NAME_KEY "nemo-toolbar-view-action-name"
+#define VIEW_ACTION_KEY "nemo-toolbar-view-action"
+
+/* Same reasoning as the user actions above: an action that does not apply to
+ * the current location turns invisible, so it is shown greyed out in place
+ * rather than left to disappear and shift the rest of the row. */
+static void
+toolbar_view_action_state_changed (GtkAction  *action,
+                                   GParamSpec *pspec,
+                                   GtkWidget  *button)
+{
+    gtk_widget_set_sensitive (button,
+                              gtk_action_is_sensitive (action) &&
+                              gtk_action_is_visible (action));
+}
+
+/* The action a view button drives is owned by whichever view is on top, and is
+ * a different object after every tab switch, so the button keeps only its name
+ * and looks the action up again each time the view changes. */
+static void
+toolbar_bind_view_button (NemoToolbar *self,
+                          GtkWidget   *button)
+{
+    const gchar *name;
+    GtkAction *action = NULL;
+    GtkAction *bound;
+
+    name = g_object_get_data (G_OBJECT (button), VIEW_ACTION_NAME_KEY);
+    bound = g_object_get_data (G_OBJECT (button), VIEW_ACTION_KEY);
+
+    if (self->priv->action_view != NULL) {
+        action = nemo_view_get_action (self->priv->action_view, name);
+    }
+
+    if (action == bound) {
+        if (action != NULL) {
+            toolbar_view_action_state_changed (action, NULL, button);
+        }
+
+        return;
+    }
+
+    if (bound != NULL) {
+        g_signal_handlers_disconnect_by_func (bound, toolbar_view_action_state_changed, button);
+    }
+
+    g_object_set_data_full (G_OBJECT (button), VIEW_ACTION_KEY,
+                            action != NULL ? g_object_ref (action) : NULL,
+                            g_object_unref);
+
+    /* No view is active, or its menus are not merged: nothing to act on. */
+    if (action == NULL) {
+        gtk_widget_set_sensitive (button, FALSE);
+        return;
+    }
+
+    gtk_widget_set_tooltip_text (button, gtk_action_get_tooltip (action));
+
+    g_signal_connect_object (action, "notify::sensitive",
+                             G_CALLBACK (toolbar_view_action_state_changed), button, 0);
+    g_signal_connect_object (action, "notify::visible",
+                             G_CALLBACK (toolbar_view_action_state_changed), button, 0);
+
+    toolbar_view_action_state_changed (action, NULL, button);
+}
+
+static void
+toolbar_bind_view_buttons (NemoToolbar *self)
+{
+    GList *l;
+
+    for (l = self->priv->view_buttons; l != NULL; l = l->next) {
+        toolbar_bind_view_button (self, l->data);
+    }
+}
+
+static void
+toolbar_view_button_clicked (GtkButton   *button,
+                             NemoToolbar *self)
+{
+    GtkAction *action = g_object_get_data (G_OBJECT (button), VIEW_ACTION_KEY);
+
+    if (action != NULL) {
+        gtk_action_activate (action);
+    }
+}
+
+static GtkWidget *
+toolbar_create_view_button (NemoToolbar               *self,
+                            const NemoToolbarItemInfo *info)
+{
+    GtkWidget *button;
+
+    /* Deliberately not bound with gtk_activatable_set_related_action: that
+     * would tie the button to one view's action for good, and would hide it
+     * whenever the action goes invisible. */
+    button = gtk_button_new ();
+    gtk_button_set_image (GTK_BUTTON (button),
+                          gtk_image_new_from_icon_name (info->icon_name, GTK_ICON_SIZE_BUTTON));
+    gtk_widget_set_tooltip_text (button, _(info->label));
+    gtk_widget_set_can_focus (button, FALSE);
+    gtk_widget_set_sensitive (button, FALSE);
+    gtk_style_context_add_class (gtk_widget_get_style_context (button), GTK_STYLE_CLASS_FLAT);
+
+    g_object_set_data (G_OBJECT (button), VIEW_ACTION_NAME_KEY, (gpointer) info->id);
+    g_signal_connect (button, "clicked",
+                      G_CALLBACK (toolbar_view_button_clicked), self);
+
+    self->priv->view_buttons = g_list_prepend (self->priv->view_buttons, button);
+    toolbar_bind_view_button (self, button);
+
+    return button;
+}
+
 /* Consecutive buttons share one tool item so they keep the tight 2px spacing
  * of the original toolbar, with a 6px gap against the path bar. */
 static void
@@ -381,7 +500,8 @@ build_row (NemoToolbar    *self,
         }
 
         gtk_container_add (GTK_CONTAINER (box),
-                           toolbar_create_toolbutton (self, info->is_toggle, info->id));
+                           info->from_view ? toolbar_create_view_button (self, info)
+                                           : toolbar_create_toolbutton (self, info->is_toggle, info->id));
     }
 
     flush_button_box (row, &box, after_pathbar, FALSE);
@@ -407,6 +527,10 @@ rebuild_rows (NemoToolbar *self)
 
     g_list_free_full (self->priv->rows, (GDestroyNotify) gtk_widget_destroy);
     self->priv->rows = NULL;
+
+    /* Destroyed along with the rows that held them. */
+    g_list_free (self->priv->view_buttons);
+    self->priv->view_buttons = NULL;
 
     /* An empty toolbar has nothing to give it height, so it would come up as a
      * sliver until its first button lands. The bar holding the path bar is
@@ -559,6 +683,9 @@ nemo_toolbar_dispose (GObject *obj)
 	g_list_free (self->priv->rows);
 	self->priv->rows = NULL;
 
+	g_list_free (self->priv->view_buttons);
+	self->priv->view_buttons = NULL;
+
 	g_signal_handlers_disconnect_by_func (nemo_preferences,
 					      toolbar_update_appearance, self);
 
@@ -664,6 +791,14 @@ nemo_toolbar_update_for_location (NemoToolbar *self)
     toolbar_update_appearance (self);
 }
 
+/* Everything on the toolbar that depends on what the view is showing. */
+static void
+toolbar_sync_view_state (NemoToolbar *self)
+{
+    toolbar_bind_view_buttons (self);
+    toolbar_sync_action_states (self);
+}
+
 static void
 toolbar_forget_action_view (NemoToolbar *self)
 {
@@ -671,7 +806,7 @@ toolbar_forget_action_view (NemoToolbar *self)
         return;
     }
 
-    g_signal_handlers_disconnect_by_func (self->priv->action_view, toolbar_sync_action_states, self);
+    g_signal_handlers_disconnect_by_func (self->priv->action_view, toolbar_sync_view_state, self);
     g_object_remove_weak_pointer (G_OBJECT (self->priv->action_view),
                                   (gpointer *) &self->priv->action_view);
     self->priv->action_view = NULL;
@@ -682,7 +817,9 @@ nemo_toolbar_set_action_view (NemoToolbar *self,
                               NemoView    *view)
 {
     if (view == self->priv->action_view) {
-        toolbar_sync_action_states (self);
+        /* Called again for the same view once its menus are merged, which is
+         * when its actions become available to look up. */
+        toolbar_sync_view_state (self);
         return;
     }
 
@@ -693,8 +830,8 @@ nemo_toolbar_set_action_view (NemoToolbar *self,
         g_object_add_weak_pointer (G_OBJECT (view), (gpointer *) &self->priv->action_view);
 
         g_signal_connect_swapped (view, "selection-changed",
-                                  G_CALLBACK (toolbar_sync_action_states), self);
+                                  G_CALLBACK (toolbar_sync_view_state), self);
     }
 
-    toolbar_sync_action_states (self);
+    toolbar_sync_view_state (self);
 }

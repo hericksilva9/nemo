@@ -4330,6 +4330,28 @@ nemo_view_get_ui_manager (NemoView  *view)
 }
 
 /**
+ * nemo_view_get_action:
+ *
+ * Look up one of the view's own menu actions by name.
+ *
+ * Only an active view has these: the group is merged into the window when the
+ * view's slot becomes active and dropped again when it stops being, so this
+ * returns NULL the rest of the time.
+ **/
+GtkAction *
+nemo_view_get_action (NemoView   *view,
+		      const char *name)
+{
+	g_return_val_if_fail (NEMO_IS_VIEW (view), NULL);
+
+	if (view->details->dir_action_group == NULL) {
+		return NULL;
+	}
+
+	return gtk_action_group_get_action (view->details->dir_action_group, name);
+}
+
+/**
  * nemo_view_get_model:
  *
  * Get the model for this NemoView.

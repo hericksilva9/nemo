@@ -38,6 +38,11 @@ typedef struct {
     const gchar *label;
     const gchar *icon_name;
     gboolean     is_toggle;
+
+    /* Most items act on the window and are named in the toolbar's own action
+     * group. These ones act on the files a view is showing, so their action
+     * lives in that view's group and changes with the tab on top. */
+    gboolean     from_view;
 } NemoToolbarItemInfo;
 
 typedef struct {
