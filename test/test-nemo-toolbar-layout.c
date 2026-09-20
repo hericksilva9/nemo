@@ -157,6 +157,45 @@ test_migration (void)
     g_assert_true (g_file_test (path, G_FILE_TEST_EXISTS));
 }
 
+/* Copy and friends act on the files a view is showing, not on the window, and
+ * were never toolbar buttons before, so they wait in the catalog for the user
+ * to place them. */
+static void
+test_view_items_are_opt_in (void)
+{
+    GList *bars;
+    guint i, n, n_from_view = 0;
+
+    bars = nemo_toolbar_layout_get_bars (nemo_toolbar_layout_get_default ());
+    n = nemo_toolbar_layout_get_n_items ();
+
+    for (i = 0; i < n; i++) {
+        const NemoToolbarItemInfo *info = nemo_toolbar_layout_get_item (i);
+        GList *bar;
+
+        if (!info->from_view) {
+            continue;
+        }
+
+        n_from_view++;
+
+        /* The button is built from the catalog icon, not from the action,
+         * which may not name one. */
+        g_assert_nonnull (info->icon_name);
+        g_assert_false (info->is_toggle);
+
+        for (bar = bars; bar != NULL; bar = bar->next) {
+            NemoToolbarBar *b = bar->data;
+
+            g_assert_null (g_list_find_custom (b->items, info->id, (GCompareFunc) g_strcmp0));
+        }
+    }
+
+    g_assert_cmpuint (n_from_view, >, 0);
+    g_assert_true (nemo_toolbar_layout_lookup_item (NEMO_ACTION_COPY)->from_view);
+    g_assert_false (nemo_toolbar_layout_lookup_item (NEMO_ACTION_HOME)->from_view);
+}
+
 static void
 test_second_pathbar_is_dropped (void)
 {
@@ -371,6 +410,7 @@ main (int argc, char *argv[])
     g_test_add_func ("/toolbar-layout/catalog", test_catalog);
     g_test_add_func ("/toolbar-layout/action-ids", test_action_ids);
     g_test_add_func ("/toolbar-layout/migration", test_migration);
+    g_test_add_func ("/toolbar-layout/view-items-are-opt-in", test_view_items_are_opt_in);
     g_test_add_func ("/toolbar-layout/second-pathbar-is-dropped", test_second_pathbar_is_dropped);
     g_test_add_func ("/toolbar-layout/missing-pathbar-is-restored", test_missing_pathbar_is_restored);
     g_test_add_func ("/toolbar-layout/saved-file-round-trips", test_saved_file_round_trips);
