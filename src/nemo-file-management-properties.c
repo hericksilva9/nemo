@@ -981,7 +981,7 @@ toolbar_page_append_item (ToolbarPage *page,
                           const gchar *id)
 {
     GtkTreeIter iter;
-    const gchar *icon = NULL;
+    g_autoptr (GIcon) icon = NULL;
     g_autofree gchar *label = NULL;
 
     if (nemo_toolbar_layout_id_is_action (id)) {
@@ -993,7 +993,14 @@ toolbar_page_append_item (ToolbarPage *page,
         /* An action whose file is not installed right now still keeps its
          * place, so it comes back when the file does. */
         if (action != NULL) {
-            icon = gtk_action_get_icon_name (GTK_ACTION (action));
+            GIcon *action_icon = gtk_action_get_gicon (GTK_ACTION (action));
+
+            /* An action may name its icon by path, so NemoAction only ever
+             * sets a GIcon; asking for an icon name would give nothing. */
+            if (action_icon != NULL) {
+                icon = g_object_ref (action_icon);
+            }
+
             label = g_strdup (nemo_action_get_orig_label (action));
         } else {
             label = g_strdup (uuid);
@@ -1001,7 +1008,10 @@ toolbar_page_append_item (ToolbarPage *page,
     } else {
         const NemoToolbarItemInfo *info = nemo_toolbar_layout_lookup_item (id);
 
-        icon = info->icon_name;
+        if (info->icon_name != NULL) {
+            icon = g_themed_icon_new (info->icon_name);
+        }
+
         label = g_strdup (_(info->label));
     }
 
@@ -1184,7 +1194,7 @@ setup_toolbar_page (GtkBuilder *builder)
 
     page->store = gtk_tree_store_new (N_TOOLBAR_COLS,
                                       G_TYPE_INT,
-                                      G_TYPE_STRING,
+                                      G_TYPE_ICON,
                                       G_TYPE_STRING,
                                       G_TYPE_STRING,
                                       G_TYPE_BOOLEAN,
@@ -1204,7 +1214,7 @@ setup_toolbar_page (GtkBuilder *builder)
 
     renderer = gtk_cell_renderer_pixbuf_new ();
     gtk_tree_view_column_pack_start (column, renderer, FALSE);
-    gtk_tree_view_column_add_attribute (column, renderer, "icon-name", COL_ICON);
+    gtk_tree_view_column_add_attribute (column, renderer, "gicon", COL_ICON);
 
     renderer = gtk_cell_renderer_text_new ();
     gtk_tree_view_column_pack_start (column, renderer, TRUE);
