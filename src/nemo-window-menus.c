@@ -31,6 +31,7 @@
 
 #include "nemo-window-menus.h"
 #include "nemo-actions.h"
+#include "nemo-toolbar-layout.h"
 #include "nemo-application.h"
 #include "nemo-connect-server-dialog.h"
 #include "nemo-file-management-properties.h"
@@ -2018,6 +2019,91 @@ nemo_window_initialize_menus (NemoWindow *window)
     g_signal_connect (submenu, "show", G_CALLBACK (on_file_menu_show), window);
 
 	nemo_window_initialize_trash_icon_monitor (window);
+
+    nemo_window_load_toolbar_bar_menus (window);
+
+    g_signal_connect_object (nemo_toolbar_layout_get_default (), "changed",
+                             G_CALLBACK (nemo_window_load_toolbar_bar_menus), window,
+                             G_CONNECT_SWAPPED);
+}
+
+static void
+toolbar_bar_visibility_toggled (GtkToggleAction *action,
+                                gpointer         user_data)
+{
+    NemoToolbarLayout *layout = nemo_toolbar_layout_get_default ();
+    NemoToolbarBar *bar;
+    GList *bars;
+
+    bars = nemo_toolbar_layout_copy_bars (layout);
+    bar = g_list_nth_data (bars, GPOINTER_TO_INT (user_data));
+
+    if (bar == NULL) {
+        nemo_toolbar_bars_free (bars);
+        return;
+    }
+
+    bar->visible = gtk_toggle_action_get_active (action);
+    nemo_toolbar_layout_set_bars (layout, bars);
+}
+
+void
+nemo_window_load_toolbar_bar_menus (NemoWindow *window)
+{
+    GtkActionGroup *action_group;
+    GList *bars, *l;
+    guint merge_id;
+    gint index = 0;
+
+    if (window->details->toolbar_bars_merge_id != 0) {
+        gtk_ui_manager_remove_ui (window->details->ui_manager,
+                                  window->details->toolbar_bars_merge_id);
+        window->details->toolbar_bars_merge_id = 0;
+    }
+
+    if (window->details->toolbar_bars_action_group != NULL) {
+        gtk_ui_manager_remove_action_group (window->details->ui_manager,
+                                            window->details->toolbar_bars_action_group);
+        window->details->toolbar_bars_action_group = NULL;
+    }
+
+    bars = nemo_toolbar_layout_get_bars (nemo_toolbar_layout_get_default ());
+
+    /* With a single toolbar the master switch above already says it all. */
+    if (g_list_length (bars) < 2) {
+        return;
+    }
+
+    merge_id = gtk_ui_manager_new_merge_id (window->details->ui_manager);
+    window->details->toolbar_bars_merge_id = merge_id;
+
+    action_group = gtk_action_group_new ("ToolbarBarsGroup");
+    window->details->toolbar_bars_action_group = action_group;
+    gtk_action_group_set_translation_domain (action_group, GETTEXT_PACKAGE);
+    gtk_ui_manager_insert_action_group (window->details->ui_manager, action_group, 0);
+    g_object_unref (action_group); /* owned by ui manager */
+
+    for (l = bars; l != NULL; l = l->next, index++) {
+        NemoToolbarBar *bar = l->data;
+        GtkToggleAction *action;
+        g_autofree gchar *name = g_strdup_printf ("Toolbar Bar %d", index);
+        g_autofree gchar *label = g_strdup_printf (_("Toolbar %d"), index + 1);
+
+        action = gtk_toggle_action_new (name, label, NULL, NULL);
+        gtk_toggle_action_set_active (action, bar->visible);
+
+        g_signal_connect (action, "toggled",
+                          G_CALLBACK (toolbar_bar_visibility_toggled),
+                          GINT_TO_POINTER (index));
+
+        gtk_action_group_add_action (action_group, GTK_ACTION (action));
+        g_object_unref (action);
+
+        gtk_ui_manager_add_ui (window->details->ui_manager, merge_id,
+                               "/MenuBar/View/Show Hide Placeholder/Toolbar List/Toolbar Bars Placeholder",
+                               name, name,
+                               GTK_UI_MANAGER_MENUITEM, FALSE);
+    }
 }
 
 void
