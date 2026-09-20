@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-20 11:02-0300\n"
+"POT-Creation-Date: 2026-09-20 11:13-0300\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -585,28 +585,35 @@ msgstr ""
 msgid "Yesterday"
 msgstr ""
 
-#: src/nemo-file-management-properties.c:1053 src/nemo-window-menus.c:2091
+#: src/nemo-file-management-properties.c:1050
+#, c-format
+msgid "Toolbar %d (in pane)"
+msgstr ""
+
+#: src/nemo-file-management-properties.c:1051 src/nemo-window-menus.c:2091
 #, c-format
 msgid "Toolbar %d"
 msgstr ""
 
-#: src/nemo-file-management-properties.c:1078
+#: src/nemo-file-management-properties.c:1071
 msgid "Not on any toolbar"
 msgstr ""
 
-#: src/nemo-file-management-properties.c:1246
-msgid "Show the _path bar above the tabs instead of on a toolbar"
+#: src/nemo-file-management-properties.c:1251
+msgid ""
+"Drag buttons to reorder them or to move them between toolbars. A toolbar in "
+"the pane is drawn above the tabs, one per pane."
 msgstr ""
 
-#: src/nemo-file-management-properties.c:1255
-msgid "Drag buttons to reorder them or to move them between toolbars."
-msgstr ""
-
-#: src/nemo-file-management-properties.c:1267
+#: src/nemo-file-management-properties.c:1265
 msgid "Add Toolbar"
 msgstr ""
 
-#: src/nemo-file-management-properties.c:1268
+#: src/nemo-file-management-properties.c:1266
+msgid "Add Toolbar in Pane"
+msgstr ""
+
+#: src/nemo-file-management-properties.c:1267
 msgid "Remove Toolbar"
 msgstr ""
 
@@ -3520,7 +3527,7 @@ msgstr ""
 msgid "Activate next tab"
 msgstr ""
 
-#: src/nemo-window-menus.c:1533 src/nemo-window-pane.c:597
+#: src/nemo-window-menus.c:1533 src/nemo-window-pane.c:552
 msgid "Move Tab _Left"
 msgstr ""
 
@@ -3528,7 +3535,7 @@ msgstr ""
 msgid "Move current tab to left"
 msgstr ""
 
-#: src/nemo-window-menus.c:1536 src/nemo-window-pane.c:605
+#: src/nemo-window-menus.c:1536 src/nemo-window-pane.c:560
 msgid "Move Tab _Right"
 msgstr ""
 
@@ -3720,11 +3727,11 @@ msgstr ""
 msgid "_Location"
 msgstr ""
 
-#: src/nemo-window-pane.c:580
+#: src/nemo-window-pane.c:535
 msgid "_New Tab"
 msgstr ""
 
-#: src/nemo-window-pane.c:616
+#: src/nemo-window-pane.c:571
 msgid "_Close Tab"
 msgstr ""
 
