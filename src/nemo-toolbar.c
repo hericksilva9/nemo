@@ -300,6 +300,7 @@ toolbar_create_action_button (NemoToolbar *self,
 
 #define VIEW_ITEM_KEY "nemo-toolbar-view-item"
 #define VIEW_ACTION_KEY "nemo-toolbar-view-action"
+#define VIEW_ICON_KEY "nemo-toolbar-view-icon"
 
 /* Same reasoning as the user actions above: an action that does not apply to
  * the current location turns invisible, so it is shown greyed out in place
@@ -328,7 +329,7 @@ toolbar_view_action_changed (GtkAction  *action,
     gtk_widget_set_tooltip_text (button, tooltip != NULL ? tooltip : _(info->label));
 
     icon_name = gtk_action_get_icon_name (action);
-    gtk_image_set_from_icon_name (GTK_IMAGE (gtk_button_get_image (GTK_BUTTON (button))),
+    gtk_image_set_from_icon_name (g_object_get_data (G_OBJECT (button), VIEW_ICON_KEY),
                                   icon_name != NULL ? icon_name : info->icon_name,
                                   GTK_ICON_SIZE_BUTTON);
 }
@@ -444,13 +445,32 @@ toolbar_create_view_button (NemoToolbar               *self,
                             const NemoToolbarItemInfo *info)
 {
     GtkWidget *button;
+    GtkWidget *image;
 
     /* Deliberately not bound with gtk_activatable_set_related_action: that
      * would tie the button to one view's action for good, and would hide it
      * whenever the action goes invisible. */
     button = gtk_button_new ();
-    gtk_button_set_image (GTK_BUTTON (button),
-                          gtk_image_new_from_icon_name (info->icon_name, GTK_ICON_SIZE_BUTTON));
+    image = gtk_image_new_from_icon_name (info->icon_name, GTK_ICON_SIZE_BUTTON);
+    g_object_set_data (G_OBJECT (button), VIEW_ICON_KEY, image);
+
+    if (info->menu_path != NULL) {
+        GtkWidget *box;
+        GtkWidget *arrow;
+
+        /* An arrow, so a button that drops down a menu does not look like one
+         * that runs a command. */
+        arrow = gtk_image_new_from_icon_name ("xsi-pan-down-symbolic", GTK_ICON_SIZE_BUTTON);
+        gtk_image_set_pixel_size (GTK_IMAGE (arrow), 12);
+
+        box = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 0);
+        gtk_container_add (GTK_CONTAINER (box), image);
+        gtk_container_add (GTK_CONTAINER (box), arrow);
+        gtk_container_add (GTK_CONTAINER (button), box);
+    } else {
+        gtk_button_set_image (GTK_BUTTON (button), image);
+    }
+
     gtk_widget_set_tooltip_text (button, _(info->label));
     gtk_widget_set_can_focus (button, FALSE);
     gtk_widget_set_sensitive (button, FALSE);
