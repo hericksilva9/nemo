@@ -62,6 +62,7 @@ nemoCommon_sources = [
   'nemo-self-check-functions.c',
   'nemo-statusbar.c',
   'nemo-thumbnail-problem-bar.c',
+  'nemo-toolbar-layout.c',
   'nemo-toolbar.c',
   'nemo-trash-bar.c',
   'nemo-tree-sidebar-model.c',
@@ -103,7 +104,7 @@ if enableEmptyView
   nemoCommon_sources += 'nemo-empty-view.c'
 endif
 
-nemo_deps = [ cinnamon, gail, glib, gtk, math,
+nemo_deps = [ cinnamon, gail, glib, gtk, json, math,
   egg, nemo_extension, nemo_private, xapp ]
 
 if exempi_enabled
