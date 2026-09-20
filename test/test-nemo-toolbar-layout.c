@@ -184,6 +184,12 @@ test_view_items_are_opt_in (void)
         g_assert_nonnull (info->icon_name);
         g_assert_false (info->is_toggle);
 
+        /* A submenu is reached through the view's UI manager, so its path is
+         * absolute there. */
+        if (info->menu_path != NULL) {
+            g_assert_true (g_str_has_prefix (info->menu_path, "/"));
+        }
+
         for (bar = bars; bar != NULL; bar = bar->next) {
             NemoToolbarBar *b = bar->data;
 
@@ -194,6 +200,11 @@ test_view_items_are_opt_in (void)
     g_assert_cmpuint (n_from_view, >, 0);
     g_assert_true (nemo_toolbar_layout_lookup_item (NEMO_ACTION_COPY)->from_view);
     g_assert_false (nemo_toolbar_layout_lookup_item (NEMO_ACTION_HOME)->from_view);
+
+    /* Copy to and Move to drop down a menu; the rest run a command. */
+    g_assert_nonnull (nemo_toolbar_layout_lookup_item (NEMO_ACTION_COPY_TO_MENU)->menu_path);
+    g_assert_nonnull (nemo_toolbar_layout_lookup_item (NEMO_ACTION_MOVE_TO_MENU)->menu_path);
+    g_assert_null (nemo_toolbar_layout_lookup_item (NEMO_ACTION_COPY)->menu_path);
 }
 
 static void
