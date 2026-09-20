@@ -29,6 +29,10 @@ G_DECLARE_FINAL_TYPE (NemoToolbarLayout, nemo_toolbar_layout, NEMO, TOOLBAR_LAYO
  * between rows, so the layout addresses it by this id instead of an action name. */
 #define NEMO_TOOLBAR_ITEM_PATHBAR "__pathbar__"
 
+/* User actions come and go with the files that define them, so they are not in
+ * the catalog; the layout carries them as this prefix plus the action's uuid. */
+#define NEMO_TOOLBAR_ACTION_PREFIX "action:"
+
 typedef struct {
     const gchar *id;
     const gchar *label;
@@ -50,6 +54,9 @@ GList                     *nemo_toolbar_layout_get_bars    (NemoToolbarLayout *l
 GList                     *nemo_toolbar_layout_copy_bars   (NemoToolbarLayout *layout);
 void                       nemo_toolbar_layout_set_bars    (NemoToolbarLayout *layout,
                                                             GList             *bars);
+gboolean                   nemo_toolbar_layout_id_is_action (const gchar      *id);
+const gchar               *nemo_toolbar_layout_action_uuid   (const gchar      *id);
+
 guint                      nemo_toolbar_layout_get_n_items (void);
 const NemoToolbarItemInfo *nemo_toolbar_layout_get_item     (guint              index);
 const NemoToolbarItemInfo *nemo_toolbar_layout_lookup_item  (const gchar       *id);

@@ -104,6 +104,20 @@ nemo_toolbar_bars_free (GList *bars)
     g_list_free_full (bars, (GDestroyNotify) nemo_toolbar_bar_free);
 }
 
+gboolean
+nemo_toolbar_layout_id_is_action (const gchar *id)
+{
+    return id != NULL && g_str_has_prefix (id, NEMO_TOOLBAR_ACTION_PREFIX);
+}
+
+const gchar *
+nemo_toolbar_layout_action_uuid (const gchar *id)
+{
+    g_return_val_if_fail (nemo_toolbar_layout_id_is_action (id), NULL);
+
+    return id + sizeof (NEMO_TOOLBAR_ACTION_PREFIX) - 1;
+}
+
 const NemoToolbarItemInfo *
 nemo_toolbar_layout_lookup_item (const gchar *id)
 {
@@ -188,7 +202,10 @@ bars_from_json_root (JsonNode *root)
         for (j = 0; j < n_items; j++) {
             const gchar *id = json_array_get_string_element (item_array, j);
 
-            if (nemo_toolbar_layout_lookup_item (id) == NULL) {
+            /* A user action is kept even when it cannot be resolved right now:
+             * its defining file may simply not be installed at the moment. */
+            if (!nemo_toolbar_layout_id_is_action (id) &&
+                nemo_toolbar_layout_lookup_item (id) == NULL) {
                 DEBUG ("Unknown toolbar item '%s', skipping.", id);
                 continue;
             }
