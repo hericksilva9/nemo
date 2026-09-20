@@ -44,6 +44,7 @@ struct _NemoToolbarPriv {
 	GtkUIManager *ui_manager;
 
     GList *rows;
+    GtkSizeGroup *row_sizes;
 
     GtkWidget *pathbar_holder;
 	GtkWidget *path_bar;
@@ -263,6 +264,12 @@ rebuild_rows (NemoToolbar *self)
     g_list_free_full (self->priv->rows, (GDestroyNotify) gtk_widget_destroy);
     self->priv->rows = NULL;
 
+    /* An empty toolbar has nothing to give it height, so it would come up as a
+     * sliver until its first button lands. The bar holding the path bar is
+     * never empty, so there is always a populated row to take the height from. */
+    g_clear_object (&self->priv->row_sizes);
+    self->priv->row_sizes = gtk_size_group_new (GTK_SIZE_GROUP_VERTICAL);
+
     bars = nemo_toolbar_layout_get_bars (self->priv->layout);
 
     for (l = bars; l != NULL; l = l->next) {
@@ -270,6 +277,7 @@ rebuild_rows (NemoToolbar *self)
 
         row = build_row (self, l->data);
         gtk_box_pack_start (GTK_BOX (self), row, TRUE, TRUE, 0);
+        gtk_size_group_add_widget (self->priv->row_sizes, row);
         self->priv->rows = g_list_append (self->priv->rows, row);
     }
 
@@ -390,6 +398,7 @@ nemo_toolbar_dispose (GObject *obj)
 
 	g_clear_object (&self->priv->action_group);
 	g_clear_object (&self->priv->pathbar_holder);
+	g_clear_object (&self->priv->row_sizes);
 
 	g_list_free (self->priv->rows);
 	self->priv->rows = NULL;
