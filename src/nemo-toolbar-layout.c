@@ -46,22 +46,22 @@ typedef struct {
 /* Order here doubles as the default layout order, which reproduces the
  * fixed toolbar Nemo shipped before this was configurable. */
 static const CatalogEntry item_catalog[] = {
-    { { NEMO_ACTION_BACK,                 N_("Previous"),              FALSE }, NEMO_PREFERENCES_SHOW_PREVIOUS_ICON_TOOLBAR },
-    { { NEMO_ACTION_FORWARD,              N_("Next"),                  FALSE }, NEMO_PREFERENCES_SHOW_NEXT_ICON_TOOLBAR },
-    { { NEMO_ACTION_UP,                   N_("Up"),                    FALSE }, NEMO_PREFERENCES_SHOW_UP_ICON_TOOLBAR },
-    { { NEMO_ACTION_RELOAD,               N_("Refresh"),               FALSE }, NEMO_PREFERENCES_SHOW_RELOAD_ICON_TOOLBAR },
-    { { NEMO_ACTION_HOME,                 N_("Home"),                  FALSE }, NEMO_PREFERENCES_SHOW_HOME_ICON_TOOLBAR },
-    { { NEMO_ACTION_COMPUTER,             N_("Computer"),              FALSE }, NEMO_PREFERENCES_SHOW_COMPUTER_ICON_TOOLBAR },
-    { { NEMO_TOOLBAR_ITEM_PATHBAR,        N_("Path Bar"),              FALSE }, NULL },
-    { { NEMO_ACTION_TOGGLE_LOCATION,      N_("Location entry toggle"), FALSE }, NEMO_PREFERENCES_SHOW_EDIT_ICON_TOOLBAR },
-    { { NEMO_ACTION_OPEN_IN_TERMINAL,     N_("Open in terminal"),      FALSE }, NEMO_PREFERENCES_SHOW_OPEN_IN_TERMINAL_TOOLBAR },
-    { { NEMO_ACTION_NEW_FOLDER,           N_("New folder"),            FALSE }, NEMO_PREFERENCES_SHOW_NEW_FOLDER_ICON_TOOLBAR },
-    { { NEMO_ACTION_SEARCH,               N_("Search"),                TRUE  }, NEMO_PREFERENCES_SHOW_SEARCH_ICON_TOOLBAR },
-    { { NEMO_ACTION_SHOW_THUMBNAILS,      N_("Show Thumbnails"),       TRUE  }, NEMO_PREFERENCES_SHOW_SHOW_THUMBNAILS_TOOLBAR },
-    { { NEMO_ACTION_SHOW_HIDE_EXTRA_PANE, N_("Extra Pane"),            TRUE  }, NEMO_PREFERENCES_SHOW_TOGGLE_EXTRA_PANE_TOOLBAR },
-    { { NEMO_ACTION_ICON_VIEW,            N_("Icon view"),             TRUE  }, NEMO_PREFERENCES_SHOW_ICON_VIEW_ICON_TOOLBAR },
-    { { NEMO_ACTION_LIST_VIEW,            N_("List view"),             TRUE  }, NEMO_PREFERENCES_SHOW_LIST_VIEW_ICON_TOOLBAR },
-    { { NEMO_ACTION_COMPACT_VIEW,         N_("Compact view"),          TRUE  }, NEMO_PREFERENCES_SHOW_COMPACT_VIEW_ICON_TOOLBAR },
+    { { NEMO_ACTION_BACK,                 N_("Previous"),              "xsi-go-previous-symbolic",       FALSE }, NEMO_PREFERENCES_SHOW_PREVIOUS_ICON_TOOLBAR },
+    { { NEMO_ACTION_FORWARD,              N_("Next"),                  "xsi-go-next-symbolic",           FALSE }, NEMO_PREFERENCES_SHOW_NEXT_ICON_TOOLBAR },
+    { { NEMO_ACTION_UP,                   N_("Up"),                    "xsi-go-up-symbolic",             FALSE }, NEMO_PREFERENCES_SHOW_UP_ICON_TOOLBAR },
+    { { NEMO_ACTION_RELOAD,               N_("Refresh"),               "xsi-view-refresh-symbolic",      FALSE }, NEMO_PREFERENCES_SHOW_RELOAD_ICON_TOOLBAR },
+    { { NEMO_ACTION_HOME,                 N_("Home"),                  "xsi-go-home-symbolic",           FALSE }, NEMO_PREFERENCES_SHOW_HOME_ICON_TOOLBAR },
+    { { NEMO_ACTION_COMPUTER,             N_("Computer"),              "xsi-computer-symbolic",          FALSE }, NEMO_PREFERENCES_SHOW_COMPUTER_ICON_TOOLBAR },
+    { { NEMO_TOOLBAR_ITEM_PATHBAR,        N_("Path Bar"),              "nemo-location-symbolic",         FALSE }, NULL },
+    { { NEMO_ACTION_TOGGLE_LOCATION,      N_("Location entry toggle"), "nemo-location-symbolic",         FALSE }, NEMO_PREFERENCES_SHOW_EDIT_ICON_TOOLBAR },
+    { { NEMO_ACTION_OPEN_IN_TERMINAL,     N_("Open in terminal"),      "xsi-utilities-terminal-symbolic", FALSE }, NEMO_PREFERENCES_SHOW_OPEN_IN_TERMINAL_TOOLBAR },
+    { { NEMO_ACTION_NEW_FOLDER,           N_("New folder"),            "xsi-folder-new-symbolic",        FALSE }, NEMO_PREFERENCES_SHOW_NEW_FOLDER_ICON_TOOLBAR },
+    { { NEMO_ACTION_SEARCH,               N_("Search"),                "xsi-edit-find-symbolic",         TRUE  }, NEMO_PREFERENCES_SHOW_SEARCH_ICON_TOOLBAR },
+    { { NEMO_ACTION_SHOW_THUMBNAILS,      N_("Show Thumbnails"),       "xsi-preview-symbolic",           TRUE  }, NEMO_PREFERENCES_SHOW_SHOW_THUMBNAILS_TOOLBAR },
+    { { NEMO_ACTION_SHOW_HIDE_EXTRA_PANE, N_("Extra Pane"),            "xsi-view-dual-symbolic",         TRUE  }, NEMO_PREFERENCES_SHOW_TOGGLE_EXTRA_PANE_TOOLBAR },
+    { { NEMO_ACTION_ICON_VIEW,            N_("Icon view"),             "xsi-view-grid-symbolic",         TRUE  }, NEMO_PREFERENCES_SHOW_ICON_VIEW_ICON_TOOLBAR },
+    { { NEMO_ACTION_LIST_VIEW,            N_("List view"),             "xsi-view-list-symbolic",         TRUE  }, NEMO_PREFERENCES_SHOW_LIST_VIEW_ICON_TOOLBAR },
+    { { NEMO_ACTION_COMPACT_VIEW,         N_("Compact view"),          "xsi-view-compact-symbolic",      TRUE  }, NEMO_PREFERENCES_SHOW_COMPACT_VIEW_ICON_TOOLBAR },
 };
 
 struct _NemoToolbarLayout {
@@ -80,8 +80,8 @@ enum {
 
 static guint signals[LAST_SIGNAL] = { 0 };
 
-static NemoToolbarBar *
-bar_new (void)
+NemoToolbarBar *
+nemo_toolbar_bar_new (void)
 {
     NemoToolbarBar *bar;
 
@@ -91,17 +91,17 @@ bar_new (void)
     return bar;
 }
 
-static void
-bar_free (NemoToolbarBar *bar)
+void
+nemo_toolbar_bar_free (NemoToolbarBar *bar)
 {
     g_list_free_full (bar->items, g_free);
     g_free (bar);
 }
 
-static void
-bars_free (GList *bars)
+void
+nemo_toolbar_bars_free (GList *bars)
 {
-    g_list_free_full (bars, (GDestroyNotify) bar_free);
+    g_list_free_full (bars, (GDestroyNotify) nemo_toolbar_bar_free);
 }
 
 const NemoToolbarItemInfo *
@@ -124,7 +124,7 @@ build_default_bars (void)
     NemoToolbarBar *bar;
     guint i;
 
-    bar = bar_new ();
+    bar = nemo_toolbar_bar_new ();
 
     for (i = 0; i < G_N_ELEMENTS (item_catalog); i++) {
         const CatalogEntry *entry = &item_catalog[i];
@@ -175,7 +175,7 @@ bars_from_json_root (JsonNode *root)
             continue;
         }
 
-        bar = bar_new ();
+        bar = nemo_toolbar_bar_new ();
 
         if (json_object_has_member (bar_object, "visible")) {
             bar->visible = json_object_get_boolean_member (bar_object, "visible");
@@ -347,7 +347,7 @@ reload (NemoToolbarLayout *layout)
         save_bars (bars);
     }
 
-    bars_free (layout->bars);
+    nemo_toolbar_bars_free (layout->bars);
     layout->bars = bars;
 }
 
@@ -391,6 +391,57 @@ nemo_toolbar_layout_get_bars (NemoToolbarLayout *layout)
     return layout->bars;
 }
 
+GList *
+nemo_toolbar_layout_copy_bars (NemoToolbarLayout *layout)
+{
+    GList *copy = NULL;
+    GList *l, *item;
+
+    for (l = layout->bars; l != NULL; l = l->next) {
+        NemoToolbarBar *source = l->data;
+        NemoToolbarBar *bar;
+
+        bar = nemo_toolbar_bar_new ();
+        bar->visible = source->visible;
+
+        for (item = source->items; item != NULL; item = item->next) {
+            bar->items = g_list_prepend (bar->items, g_strdup (item->data));
+        }
+
+        bar->items = g_list_reverse (bar->items);
+        copy = g_list_prepend (copy, bar);
+    }
+
+    return g_list_reverse (copy);
+}
+
+void
+nemo_toolbar_layout_set_bars (NemoToolbarLayout *layout,
+                              GList             *bars)
+{
+    ensure_single_pathbar (bars);
+    save_bars (bars);
+
+    nemo_toolbar_bars_free (layout->bars);
+    layout->bars = bars;
+
+    g_signal_emit (layout, signals[CHANGED], 0);
+}
+
+guint
+nemo_toolbar_layout_get_n_items (void)
+{
+    return G_N_ELEMENTS (item_catalog);
+}
+
+const NemoToolbarItemInfo *
+nemo_toolbar_layout_get_item (guint index)
+{
+    g_return_val_if_fail (index < G_N_ELEMENTS (item_catalog), NULL);
+
+    return &item_catalog[index].info;
+}
+
 NemoToolbarLayout *
 nemo_toolbar_layout_get_default (void)
 {
@@ -409,7 +460,7 @@ nemo_toolbar_layout_finalize (GObject *object)
     NemoToolbarLayout *layout = NEMO_TOOLBAR_LAYOUT (object);
 
     g_clear_object (&layout->monitor);
-    bars_free (layout->bars);
+    nemo_toolbar_bars_free (layout->bars);
 
     G_OBJECT_CLASS (nemo_toolbar_layout_parent_class)->finalize (object);
 }

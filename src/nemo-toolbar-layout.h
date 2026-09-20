@@ -32,6 +32,7 @@ G_DECLARE_FINAL_TYPE (NemoToolbarLayout, nemo_toolbar_layout, NEMO, TOOLBAR_LAYO
 typedef struct {
     const gchar *id;
     const gchar *label;
+    const gchar *icon_name;
     gboolean     is_toggle;
 } NemoToolbarItemInfo;
 
@@ -40,8 +41,17 @@ typedef struct {
     GList    *items;
 } NemoToolbarBar;
 
+NemoToolbarBar            *nemo_toolbar_bar_new            (void);
+void                       nemo_toolbar_bar_free           (NemoToolbarBar    *bar);
+void                       nemo_toolbar_bars_free          (GList             *bars);
+
 NemoToolbarLayout         *nemo_toolbar_layout_get_default (void);
 GList                     *nemo_toolbar_layout_get_bars    (NemoToolbarLayout *layout);
-const NemoToolbarItemInfo *nemo_toolbar_layout_lookup_item (const gchar       *id);
+GList                     *nemo_toolbar_layout_copy_bars   (NemoToolbarLayout *layout);
+void                       nemo_toolbar_layout_set_bars    (NemoToolbarLayout *layout,
+                                                            GList             *bars);
+guint                      nemo_toolbar_layout_get_n_items (void);
+const NemoToolbarItemInfo *nemo_toolbar_layout_get_item     (guint              index);
+const NemoToolbarItemInfo *nemo_toolbar_layout_lookup_item  (const gchar       *id);
 
 #endif /* NEMO_TOOLBAR_LAYOUT_H */
