@@ -48,6 +48,9 @@ static int  nemo_notebook_insert_page	 (GtkNotebook *notebook,
 					  int position);
 static void nemo_notebook_remove	 (GtkContainer *container,
 					  GtkWidget *tab_widget);
+static void nemo_notebook_switch_page	 (GtkNotebook *notebook,
+					  GtkWidget *child,
+					  guint page_num);
 
 enum
 {
@@ -69,6 +72,7 @@ nemo_notebook_class_init (NemoNotebookClass *klass)
 	container_class->remove = nemo_notebook_remove;
 
 	notebook_class->insert_page = nemo_notebook_insert_page;
+	notebook_class->switch_page = nemo_notebook_switch_page;
 
 	signals[TAB_CLOSE_REQUEST] =
 		g_signal_new ("tab-close-request",
@@ -302,7 +306,19 @@ nemo_notebook_sync_tab_label (NemoNotebook *notebook,
 	label = GTK_WIDGET (g_object_get_data (G_OBJECT (hbox), "label"));
 	g_return_if_fail (GTK_IS_WIDGET (label));
 
-	gtk_label_set_text (GTK_LABEL (label), slot->title);
+	/* Show the current tab in bold, the way the path bar marks the current
+	 * path segment. This is done with markup rather than CSS so it works the
+	 * same under any theme. */
+	if (gtk_notebook_page_num (GTK_NOTEBOOK (notebook), GTK_WIDGET (slot)) ==
+	    gtk_notebook_get_current_page (GTK_NOTEBOOK (notebook))) {
+		char *markup;
+
+		markup = g_markup_printf_escaped ("<b>%s</b>", slot->title != NULL ? slot->title : "");
+		gtk_label_set_markup (GTK_LABEL (label), markup);
+		g_free (markup);
+	} else {
+		gtk_label_set_text (GTK_LABEL (label), slot->title);
+	}
 
 	if (slot->location != NULL) {
 		/* Set the tooltip on the label's parent (the tab label hbox),
@@ -408,6 +424,25 @@ nemo_notebook_insert_page (GtkNotebook *gnotebook,
 	gtk_notebook_set_tab_detachable (gnotebook, tab_widget, TRUE);
 
 	return position;
+}
+
+static void
+nemo_notebook_switch_page (GtkNotebook *gnotebook,
+			   GtkWidget   *child,
+			   guint        page_num)
+{
+	GtkWidget *previous;
+
+	previous = gtk_notebook_get_nth_page (gnotebook, gtk_notebook_get_current_page (gnotebook));
+
+	GTK_NOTEBOOK_CLASS (nemo_notebook_parent_class)->switch_page (gnotebook, child, page_num);
+
+	/* Both labels have to be rebuilt: the one losing bold and the one gaining it. */
+	if (previous != NULL && previous != child) {
+		nemo_notebook_sync_tab_label (NEMO_NOTEBOOK (gnotebook), NEMO_WINDOW_SLOT (previous));
+	}
+
+	nemo_notebook_sync_tab_label (NEMO_NOTEBOOK (gnotebook), NEMO_WINDOW_SLOT (child));
 }
 
 int
