@@ -228,6 +228,30 @@ test_second_pathbar_is_dropped (void)
 }
 
 static void
+test_repeated_items_are_dropped (void)
+{
+    const gchar * const expected_first[] = {
+        NEMO_ACTION_BACK, NEMO_TOOLBAR_ITEM_PATHBAR, NEMO_ACTION_COPY, NULL
+    };
+    const gchar * const expected_second[] = { NEMO_ACTION_CUT, NULL };
+    NemoToolbarLayout *layout = nemo_toolbar_layout_get_default ();
+    GList *bars = NULL;
+
+    /* The first of each keeps its spot, whether the repeat is on the same bar
+     * or on another one. */
+    bars = g_list_append (bars, bar_with (NEMO_ACTION_BACK, NEMO_TOOLBAR_ITEM_PATHBAR,
+                                          NEMO_ACTION_COPY, NEMO_ACTION_COPY, NULL));
+    bars = g_list_append (bars, bar_with (NEMO_ACTION_CUT, NEMO_ACTION_BACK, NULL));
+
+    nemo_toolbar_layout_set_bars (layout, bars);
+
+    bars = nemo_toolbar_layout_get_bars (layout);
+    g_assert_cmpuint (g_list_length (bars), ==, 2);
+    assert_items (bars, 0, expected_first);
+    assert_items (bars, 1, expected_second);
+}
+
+static void
 test_missing_pathbar_is_restored (void)
 {
     const gchar * const expected[] = { NEMO_TOOLBAR_ITEM_PATHBAR, NEMO_ACTION_UP, NULL };
@@ -423,6 +447,7 @@ main (int argc, char *argv[])
     g_test_add_func ("/toolbar-layout/migration", test_migration);
     g_test_add_func ("/toolbar-layout/view-items-are-opt-in", test_view_items_are_opt_in);
     g_test_add_func ("/toolbar-layout/second-pathbar-is-dropped", test_second_pathbar_is_dropped);
+    g_test_add_func ("/toolbar-layout/repeated-items-are-dropped", test_repeated_items_are_dropped);
     g_test_add_func ("/toolbar-layout/missing-pathbar-is-restored", test_missing_pathbar_is_restored);
     g_test_add_func ("/toolbar-layout/saved-file-round-trips", test_saved_file_round_trips);
     g_test_add_func ("/toolbar-layout/edited-file-is-reloaded", test_edited_file_is_reloaded);

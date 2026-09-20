@@ -237,14 +237,21 @@ bars_from_json_root (JsonNode *root)
     return g_list_reverse (bars);
 }
 
-/* The path bar is one reparented widget, so exactly one bar may own it.
+/* An id stands for one button, so a repeat of one already placed is dropped
+ * and the first keeps its spot. Nothing is gained by the same button twice,
+ * the Toolbar page offers no way to take one of the two back off, and the path
+ * bar is a single reparented widget that could not be in two rows anyway --
+ * which is also why a layout that has lost it gets it back.
+ *
  * Returns TRUE when the layout had to be corrected. */
 static gboolean
-ensure_single_pathbar (GList *bars)
+ensure_items_are_unique (GList *bars)
 {
-    gboolean seen = FALSE;
+    GHashTable *seen;
     gboolean modified = FALSE;
     GList *l;
+
+    seen = g_hash_table_new (g_str_hash, g_str_equal);
 
     for (l = bars; l != NULL; l = l->next) {
         NemoToolbarBar *bar = l->data;
@@ -253,26 +260,26 @@ ensure_single_pathbar (GList *bars)
         while (item != NULL) {
             GList *next = item->next;
 
-            if (g_strcmp0 (item->data, NEMO_TOOLBAR_ITEM_PATHBAR) == 0) {
-                if (seen) {
-                    g_free (item->data);
-                    bar->items = g_list_delete_link (bar->items, item);
-                    modified = TRUE;
-                } else {
-                    seen = TRUE;
-                }
+            if (g_hash_table_contains (seen, item->data)) {
+                g_free (item->data);
+                bar->items = g_list_delete_link (bar->items, item);
+                modified = TRUE;
+            } else {
+                g_hash_table_add (seen, item->data);
             }
 
             item = next;
         }
     }
 
-    if (!seen && bars != NULL) {
+    if (!g_hash_table_contains (seen, NEMO_TOOLBAR_ITEM_PATHBAR) && bars != NULL) {
         NemoToolbarBar *first = bars->data;
 
         first->items = g_list_prepend (first->items, g_strdup (NEMO_TOOLBAR_ITEM_PATHBAR));
         modified = TRUE;
     }
+
+    g_hash_table_destroy (seen);
 
     return modified;
 }
@@ -377,7 +384,7 @@ reload (NemoToolbarLayout *layout)
     if (bars == NULL) {
         bars = build_default_bars ();
         save_bars (bars);
-    } else if (ensure_single_pathbar (bars)) {
+    } else if (ensure_items_are_unique (bars)) {
         save_bars (bars);
     }
 
@@ -453,7 +460,7 @@ void
 nemo_toolbar_layout_set_bars (NemoToolbarLayout *layout,
                               GList             *bars)
 {
-    ensure_single_pathbar (bars);
+    ensure_items_are_unique (bars);
     save_bars (bars);
 
     nemo_toolbar_bars_free (layout->bars);
