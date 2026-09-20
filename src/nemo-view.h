@@ -363,6 +363,8 @@ void                nemo_view_start_batching_selection_changes (NemoView  *view)
 void                nemo_view_stop_batching_selection_changes  (NemoView  *view);
 void                nemo_view_notify_selection_changed         (NemoView  *view);
 GtkUIManager *      nemo_view_get_ui_manager                   (NemoView  *view);
+GtkAction *         nemo_view_get_action                       (NemoView  *view,
+                                                                const char    *name);
 NemoDirectory  *nemo_view_get_model                        (NemoView  *view);
 NemoFile       *nemo_view_get_directory_as_file            (NemoView  *view);
 void            nemo_view_update_actions_and_extensions        (NemoView *view);

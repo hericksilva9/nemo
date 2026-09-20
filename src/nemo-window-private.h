@@ -52,6 +52,9 @@ struct NemoWindowDetails
         guint extensions_menu_merge_id;
         GtkActionGroup *extensions_menu_action_group;
 
+        guint toolbar_bars_merge_id;
+        GtkActionGroup *toolbar_bars_action_group;
+
         GtkActionGroup *bookmarks_action_group;
         GtkActionGroup *toolbar_action_group;
         guint bookmarks_merge_id;

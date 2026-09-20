@@ -30,6 +30,7 @@
 #include <gtk/gtk.h>
 
 guint           action_for_view_id  (const char *view_id                           );
+void            nemo_window_load_toolbar_bar_menus (NemoWindow *window);
 void            toolbar_set_view_button     (guint action_id,      NemoWindow *window);
 void            toolbar_set_show_thumbnails_button (gboolean value, NemoWindowPane *pane);
 void            menu_set_show_thumbnails_action (gboolean value, NemoWindow *window);

@@ -160,6 +160,18 @@
 #define NEMO_VIEW_MENU_PATH_PLACES_MOVETO_ENTRIES_PLACEHOLDER "/MenuBar/Edit/File Items Placeholder/MoveToMenu/PlacesMoveToPlaceHolder"
 #define NEMO_VIEW_MENU_PATH_PLACES_COPYTO_ENTRIES_PLACEHOLDER "/MenuBar/Edit/File Items Placeholder/CopyToMenu/PlacesCopyToPlaceHolder"
 
+#define NEMO_VIEW_TOOLBAR_PATH_APPLICATIONS_PLACEHOLDER "/toolbar-open-with/Applications Placeholder"
+
+#define NEMO_VIEW_TOOLBAR_PATH_BOOKMARK_MOVETO_ENTRIES_PLACEHOLDER "/toolbar-move-to/BookmarkMoveToPlaceHolder"
+#define NEMO_VIEW_TOOLBAR_PATH_BOOKMARK_COPYTO_ENTRIES_PLACEHOLDER "/toolbar-copy-to/BookmarkCopyToPlaceHolder"
+#define NEMO_VIEW_TOOLBAR_PATH_PLACES_MOVETO_ENTRIES_PLACEHOLDER "/toolbar-move-to/PlacesMoveToPlaceHolder"
+#define NEMO_VIEW_TOOLBAR_PATH_PLACES_COPYTO_ENTRIES_PLACEHOLDER "/toolbar-copy-to/PlacesCopyToPlaceHolder"
+
+/* One per place the Copy to and Move to menus appear: the selection popup, the
+ * Edit menu and the toolbar buttons, times the two menus. Each needs actions
+ * of its own, since a bookmark entry carries the destination it points at. */
+#define N_COPY_MOVE_MENUS 6
+
 #define MAX_MENU_LEVELS 5
 #define TEMPLATE_LIMIT 30
 
@@ -307,8 +319,8 @@ struct NemoViewDetails
 
 	GList *subdirectory_list;
 
-    guint copy_move_merge_ids[4];
-    GtkActionGroup *copy_move_action_groups[4];
+    guint copy_move_merge_ids[N_COPY_MOVE_MENUS];
+    GtkActionGroup *copy_move_action_groups[N_COPY_MOVE_MENUS];
     guint bookmarks_changed_id;
 
 	GdkPoint context_menu_position;
@@ -2912,7 +2924,7 @@ real_unmerge_menus (NemoView *view)
                 &view->details->actions_merge_id,
                 &view->details->actions_action_group);
     int i;
-    for (i = 0; i < 4; i++) {
+    for (i = 0; i < N_COPY_MOVE_MENUS; i++) {
         nemo_ui_unmerge_ui (ui_manager,
                 &view->details->copy_move_merge_ids[i],
                 &view->details->copy_move_action_groups[i]);
@@ -4330,6 +4342,28 @@ nemo_view_get_ui_manager (NemoView  *view)
 }
 
 /**
+ * nemo_view_get_action:
+ *
+ * Look up one of the view's own menu actions by name.
+ *
+ * Only an active view has these: the group is merged into the window when the
+ * view's slot becomes active and dropped again when it stops being, so this
+ * returns NULL the rest of the time.
+ **/
+GtkAction *
+nemo_view_get_action (NemoView   *view,
+		      const char *name)
+{
+	g_return_val_if_fail (NEMO_IS_VIEW (view), NULL);
+
+	if (view->details->dir_action_group == NULL) {
+		return NULL;
+	}
+
+	return gtk_action_group_get_action (view->details->dir_action_group, name);
+}
+
+/**
  * nemo_view_get_model:
  *
  * Get the model for this NemoView.
@@ -4881,6 +4915,19 @@ add_application_to_open_with_menu (NemoView *view,
 
 	menu_item_show_image (ui_manager, popup_placeholder, action_name, TRUE);
 
+	/* Always the same one: the toolbar menu takes every application, so it
+	 * does not have the two placeholders the menus pick between. */
+	gtk_ui_manager_add_ui (ui_manager,
+			       view->details->open_with_merge_id,
+			       NEMO_VIEW_TOOLBAR_PATH_APPLICATIONS_PLACEHOLDER,
+			       action_name,
+			       action_name,
+			       GTK_UI_MANAGER_MENUITEM,
+			       FALSE);
+
+	menu_item_show_image (ui_manager, NEMO_VIEW_TOOLBAR_PATH_APPLICATIONS_PLACEHOLDER,
+			      action_name, TRUE);
+
 	g_free (action_name);
 	g_free (label);
 	g_free (tip);
@@ -4949,6 +4996,7 @@ reset_open_with_menu (NemoView *view, GList *selection, gboolean filter_default)
 	GtkUIManager *ui_manager;
 	GtkAction *action;
 	GAppInfo *default_app;
+	guint n_listed = 0;
 
 	/* Clear any previous inserted items in the applications and viewers placeholders */
 
@@ -5006,6 +5054,8 @@ reset_open_with_menu (NemoView *view, GList *selection, gboolean filter_default)
 			continue;
 		}
 
+		n_listed++;
+
 		if (submenu_visible) {
 			menu_path = (char *)NEMO_VIEW_MENU_PATH_APPLICATIONS_SUBMENU_PLACEHOLDER;
 			popup_path = (char *)NEMO_VIEW_POPUP_PATH_APPLICATIONS_SUBMENU_PLACEHOLDER;
@@ -5035,6 +5085,17 @@ reset_open_with_menu (NemoView *view, GList *selection, gboolean filter_default)
 
 	open_with_chooser_visible = other_applications_visible &&
 		g_list_length (selection) == 1;
+
+	/* The menus keep this one always live -- an empty submenu just sits
+	 * there unnoticed. The toolbar can carry it as a button, which should
+	 * look dead when there would be nothing behind it. */
+	action = gtk_action_group_get_action (view->details->dir_action_group,
+					      NEMO_ACTION_OPEN_WITH);
+	gtk_action_set_sensitive (action, n_listed > 0 || open_with_chooser_visible);
+
+	action = gtk_action_group_get_action (view->details->dir_action_group,
+					      NEMO_ACTION_OTHER_APPLICATION3);
+	gtk_action_set_visible (action, open_with_chooser_visible);
 
 	if (submenu_visible) {
 		action = gtk_action_group_get_action (view->details->dir_action_group,
@@ -5196,6 +5257,28 @@ add_bookmark_to_action (NemoView *view, const gchar *bookmark_name, const gchar 
                                             view->details->copy_move_merge_ids[3],
                                             NEMO_VIEW_MENU_PATH_BOOKMARK_COPYTO_ENTRIES_PLACEHOLDER,
                                             view);
+
+    setup_bookmark_action(g_strdup_printf ("BM_MOVETO_TOOLBAR_%d", index),
+                                            bookmark_name,
+                                            icon_name,
+                                            mount_uri,
+                                            ui_manager,
+                                            TRUE,
+                                            view->details->copy_move_action_groups[4],
+                                            view->details->copy_move_merge_ids[4],
+                                            NEMO_VIEW_TOOLBAR_PATH_BOOKMARK_MOVETO_ENTRIES_PLACEHOLDER,
+                                            view);
+
+    setup_bookmark_action(g_strdup_printf ("BM_COPYTO_TOOLBAR_%d", index),
+                                            bookmark_name,
+                                            icon_name,
+                                            mount_uri,
+                                            ui_manager,
+                                            FALSE,
+                                            view->details->copy_move_action_groups[5],
+                                            view->details->copy_move_merge_ids[5],
+                                            NEMO_VIEW_TOOLBAR_PATH_BOOKMARK_COPYTO_ENTRIES_PLACEHOLDER,
+                                            view);
 }
 
 static void
@@ -5247,6 +5330,28 @@ add_place_to_action (NemoView *view, const gchar *bookmark_name, const gchar *ic
                                             view->details->copy_move_merge_ids[3],
                                             NEMO_VIEW_MENU_PATH_PLACES_COPYTO_ENTRIES_PLACEHOLDER,
                                             view);
+
+    setup_bookmark_action(g_strdup_printf ("PLACE_MOVETO_TOOLBAR_%d", index),
+                                            bookmark_name,
+                                            icon_name,
+                                            mount_uri,
+                                            ui_manager,
+                                            TRUE,
+                                            view->details->copy_move_action_groups[4],
+                                            view->details->copy_move_merge_ids[4],
+                                            NEMO_VIEW_TOOLBAR_PATH_PLACES_MOVETO_ENTRIES_PLACEHOLDER,
+                                            view);
+
+    setup_bookmark_action(g_strdup_printf ("PLACE_COPYTO_TOOLBAR_%d", index),
+                                            bookmark_name,
+                                            icon_name,
+                                            mount_uri,
+                                            ui_manager,
+                                            FALSE,
+                                            view->details->copy_move_action_groups[5],
+                                            view->details->copy_move_merge_ids[5],
+                                            NEMO_VIEW_TOOLBAR_PATH_PLACES_COPYTO_ENTRIES_PLACEHOLDER,
+                                            view);
 }
 
 static void
@@ -5265,7 +5370,7 @@ reset_move_copy_to_menu (NemoView *view)
 
     int i;
 
-    for (i = 0; i < 4; i++) {
+    for (i = 0; i < N_COPY_MOVE_MENUS; i++) {
         nemo_ui_unmerge_ui (ui_manager,
                 &view->details->copy_move_merge_ids[i],
                 &view->details->copy_move_action_groups[i]);
@@ -5570,7 +5675,7 @@ disconnect_bookmark_signals (NemoView *view)
     int i;
     GList *list;
     GtkActionGroup *group;
-    for (i = 0; i < 4; i++) {
+    for (i = 0; i < N_COPY_MOVE_MENUS; i++) {
         group = GTK_ACTION_GROUP (view->details->copy_move_action_groups[i]);
         list = gtk_action_group_list_actions (group);
         g_list_foreach (list, disconnect_bookmark, NULL);
@@ -8367,6 +8472,10 @@ static const GtkActionEntry directory_view_entries[] = {
 				 G_CALLBACK (action_other_application_callback) },
   /* name, stock id */         { "OtherApplication2", NULL,
   /* label, accelerator */       N_("Open With Other _Application..."), NULL,
+  /* tooltip */                  N_("Choose another application with which to open the selected item"),
+				 G_CALLBACK (action_other_application_callback) },
+  /* name, stock id */         { "OtherApplication3", NULL,
+  /* label, accelerator */       N_("Other _Application..."), NULL,
   /* tooltip */                  N_("Choose another application with which to open the selected item"),
 				 G_CALLBACK (action_other_application_callback) },
   /* name, stock id */         { "Empty Trash", NULL,

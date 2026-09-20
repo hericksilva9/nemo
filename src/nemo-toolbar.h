@@ -73,4 +73,10 @@ void nemo_toolbar_set_show_main_bar (NemoToolbar *self,
 void nemo_toolbar_set_show_location_entry (NemoToolbar *self,
 					       gboolean show_location_entry);
 void nemo_toolbar_update_for_location (NemoToolbar *self);
+
+/* Forward declared: nemo-view.h pulls in the window, which pulls in this. */
+typedef struct NemoView NemoView;
+
+void nemo_toolbar_set_action_view (NemoToolbar *self,
+                                   NemoView    *view);
 #endif /* __NEMO_TOOLBAR_H__ */

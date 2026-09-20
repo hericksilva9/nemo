@@ -25,6 +25,7 @@
 #include <config.h>
 
 #include "nemo-file-management-properties.h"
+#include "nemo-toolbar-layout.h"
 
 #include <string.h>
 #include <time.h>
@@ -37,6 +38,7 @@
 
 #include <libnemo-private/nemo-column-chooser.h>
 #include <libnemo-private/nemo-column-utilities.h>
+#include <libnemo-private/nemo-action-manager.h>
 #include <libnemo-private/nemo-global-preferences.h>
 #include <libnemo-private/nemo-module.h>
 
@@ -75,21 +77,6 @@
 #define NEMO_FILE_MANAGEMENT_PROPERTIES_TREE_VIEW_FOLDERS_WIDGET "treeview_folders_checkbutton"
 #define NEMO_FILE_MANAGEMENT_PROPERTIES_SHOW_LIST_VIEW_EXPANDERS_WIDGET "list_view_show_expanders_checkbutton"
 
-#define NEMO_FILE_MANAGEMENT_PROPERTIES_SHOW_PREVIOUS_ICON_TOOLBAR_WIDGET "show_previous_icon_toolbar_togglebutton"
-#define NEMO_FILE_MANAGEMENT_PROPERTIES_SHOW_NEXT_ICON_TOOLBAR_WIDGET "show_next_icon_toolbar_togglebutton"
-#define NEMO_FILE_MANAGEMENT_PROPERTIES_SHOW_UP_ICON_TOOLBAR_WIDGET "show_up_icon_toolbar_togglebutton"
-#define NEMO_FILE_MANAGEMENT_PROPERTIES_SHOW_RELOAD_ICON_TOOLBAR_WIDGET "show_reload_icon_toolbar_togglebutton"
-#define NEMO_FILE_MANAGEMENT_PROPERTIES_SHOW_EDIT_ICON_TOOLBAR_WIDGET "show_edit_icon_toolbar_togglebutton"
-#define NEMO_FILE_MANAGEMENT_PROPERTIES_SHOW_HOME_ICON_TOOLBAR_WIDGET "show_home_icon_toolbar_togglebutton"
-#define NEMO_FILE_MANAGEMENT_PROPERTIES_SHOW_COMPUTER_ICON_TOOLBAR_WIDGET "show_computer_icon_toolbar_togglebutton"
-#define NEMO_FILE_MANAGEMENT_PROPERTIES_SHOW_SEARCH_ICON_TOOLBAR_WIDGET "show_search_icon_toolbar_togglebutton"
-#define NEMO_FILE_MANAGEMENT_PROPERTIES_SHOW_NEW_FOLDER_ICON_TOOLBAR_WIDGET "show_new_folder_icon_toolbar_togglebutton"
-#define NEMO_FILE_MANAGEMENT_PROPERTIES_SHOW_OPEN_IN_TERMINAL_ICON_TOOLBAR_WIDGET "show_open_in_terminal_icon_toolbar_togglebutton"
-#define NEMO_FILE_MANAGEMENT_PROPERTIES_SHOW_ICON_VIEW_ICON_TOOLBAR_WIDGET "show_icon_view_icon_toolbar_togglebutton"
-#define NEMO_FILE_MANAGEMENT_PROPERTIES_SHOW_LIST_VIEW_ICON_TOOLBAR_WIDGET "show_list_view_icon_toolbar_togglebutton"
-#define NEMO_FILE_MANAGEMENT_PROPERTIES_SHOW_COMPACT_VIEW_ICON_TOOLBAR_WIDGET "show_compact_view_icon_toolbar_togglebutton"
-#define NEMO_FILE_MANAGEMENT_PROPERTIES_SHOW_SHOW_THUMBNAILS_ICON_TOOLBAR_WIDGET "show_show_thumbnails_icon_toolbar_togglebutton"
-#define NEMO_FILE_MANAGEMENT_PROPERTIES_SHOW_TOGGLE_EXTRA_PANE_ICON_TOOLBAR_WIDGET "show_toggle_extra_pane_icon_toolbar_togglebutton"
 
 #define NEMO_FILE_MANAGEMENT_PROPERTIES_SHOW_FULL_PATH_IN_TITLE_BARS_WIDGET "show_full_path_in_title_bars_checkbutton"
 #define NEMO_FILE_MANAGEMENT_PROPERTIES_CLOSE_DEVICE_VIEW_ON_EJECT_WIDGET "close_device_view_on_eject_checkbutton"
@@ -865,6 +852,408 @@ set_gtk_filechooser_sort_first (GObject *object,
 				gtk_toggle_button_get_active (GTK_TOGGLE_BUTTON (object)));
 }
 
+/* Toolbar page: edits the bar layout held by NemoToolbarLayout. Bars and the
+ * buttons on them are shown as a tree and rearranged by dragging; every change
+ * is written straight through, so open windows restyle as you drop. */
+
+enum {
+    ROW_BAR,
+    ROW_AVAILABLE,
+    ROW_ITEM
+};
+
+enum {
+    COL_KIND,
+    COL_ICON,
+    COL_LABEL,
+    COL_ID,
+    COL_VISIBLE,
+    COL_SHOW_CHECK,
+    N_TOOLBAR_COLS
+};
+
+typedef struct {
+    GtkTreeStore      *store;
+    GtkWidget         *view;
+    NemoActionManager *actions;
+    guint              commit_id;
+    gboolean           updating;
+} ToolbarPage;
+
+static void toolbar_page_fill (ToolbarPage *page);
+
+static void
+toolbar_page_free (gpointer data)
+{
+    ToolbarPage *page = data;
+
+    if (page->commit_id != 0) {
+        g_source_remove (page->commit_id);
+    }
+
+    g_clear_object (&page->actions);
+    g_clear_object (&page->store);
+    g_free (page);
+}
+
+static void
+toolbar_page_collect_items (GtkTreeModel   *model,
+                            GtkTreeIter    *iter,
+                            NemoToolbarBar *bar)
+{
+    do {
+        GtkTreeIter child;
+        gchar *id = NULL;
+        gint kind;
+
+        gtk_tree_model_get (model, iter, COL_KIND, &kind, COL_ID, &id, -1);
+
+        if (kind == ROW_ITEM && id != NULL) {
+            bar->items = g_list_append (bar->items, id);
+        } else {
+            g_free (id);
+        }
+
+        /* A drop can leave one button nested under another; flatten it out. */
+        if (gtk_tree_model_iter_children (model, &child, iter)) {
+            toolbar_page_collect_items (model, &child, bar);
+        }
+    } while (gtk_tree_model_iter_next (model, iter));
+}
+
+static GList *
+toolbar_page_harvest (ToolbarPage *page)
+{
+    GtkTreeModel *model = GTK_TREE_MODEL (page->store);
+    GList *bars = NULL;
+    GtkTreeIter top;
+    gboolean ok;
+
+    for (ok = gtk_tree_model_get_iter_first (model, &top);
+         ok;
+         ok = gtk_tree_model_iter_next (model, &top)) {
+        NemoToolbarBar *bar;
+        GtkTreeIter child;
+        gboolean visible;
+        gint kind;
+
+        gtk_tree_model_get (model, &top, COL_KIND, &kind, COL_VISIBLE, &visible, -1);
+
+        if (kind != ROW_BAR) {
+            continue;
+        }
+
+        bar = nemo_toolbar_bar_new ();
+        bar->visible = visible;
+
+        if (gtk_tree_model_iter_children (model, &child, &top)) {
+            toolbar_page_collect_items (model, &child, bar);
+        }
+
+        bars = g_list_prepend (bars, bar);
+    }
+
+    return g_list_reverse (bars);
+}
+
+static void
+toolbar_page_commit (ToolbarPage *page)
+{
+    GList *bars;
+
+    if (page->updating) {
+        return;
+    }
+
+    bars = toolbar_page_harvest (page);
+
+    if (bars == NULL) {
+        bars = g_list_prepend (NULL, nemo_toolbar_bar_new ());
+    }
+
+    nemo_toolbar_layout_set_bars (nemo_toolbar_layout_get_default (), bars);
+    toolbar_page_fill (page);
+}
+
+static void
+toolbar_page_append_item (ToolbarPage *page,
+                          GtkTreeIter *parent,
+                          const gchar *id)
+{
+    GtkTreeIter iter;
+    g_autoptr (GIcon) icon = NULL;
+    g_autofree gchar *label = NULL;
+
+    if (nemo_toolbar_layout_id_is_action (id)) {
+        const gchar *uuid = nemo_toolbar_layout_action_uuid (id);
+        NemoAction *action;
+
+        action = nemo_action_manager_get_action (page->actions, uuid);
+
+        /* An action whose file is not installed right now still keeps its
+         * place, so it comes back when the file does. */
+        if (action != NULL) {
+            GIcon *action_icon = gtk_action_get_gicon (GTK_ACTION (action));
+
+            /* An action may name its icon by path, so NemoAction only ever
+             * sets a GIcon; asking for an icon name would give nothing. */
+            if (action_icon != NULL) {
+                icon = g_object_ref (action_icon);
+            }
+
+            label = g_strdup (nemo_action_get_orig_label (action));
+        } else {
+            label = g_strdup (uuid);
+        }
+    } else {
+        const NemoToolbarItemInfo *info = nemo_toolbar_layout_lookup_item (id);
+
+        if (info->icon_name != NULL) {
+            icon = g_themed_icon_new (info->icon_name);
+        }
+
+        label = g_strdup (_(info->label));
+    }
+
+    gtk_tree_store_append (page->store, &iter, parent);
+    gtk_tree_store_set (page->store, &iter,
+                        COL_KIND, ROW_ITEM,
+                        COL_ICON, icon,
+                        COL_LABEL, label,
+                        COL_ID, id,
+                        -1);
+}
+
+static void
+toolbar_page_fill (ToolbarPage *page)
+{
+    GHashTable *used;
+    GList *bars, *l, *item;
+    GtkTreeIter top;
+    guint i, n_items;
+    gint index = 1;
+
+    page->updating = TRUE;
+
+    gtk_tree_store_clear (page->store);
+    used = g_hash_table_new (g_str_hash, g_str_equal);
+    bars = nemo_toolbar_layout_get_bars (nemo_toolbar_layout_get_default ());
+
+    for (l = bars; l != NULL; l = l->next) {
+        NemoToolbarBar *bar = l->data;
+        g_autofree gchar *name = g_strdup_printf (_("Toolbar %d"), index++);
+
+        gtk_tree_store_append (page->store, &top, NULL);
+        gtk_tree_store_set (page->store, &top,
+                            COL_KIND, ROW_BAR,
+                            COL_LABEL, name,
+                            COL_VISIBLE, bar->visible,
+                            COL_SHOW_CHECK, TRUE,
+                            -1);
+
+        for (item = bar->items; item != NULL; item = item->next) {
+            g_hash_table_add (used, item->data);
+            toolbar_page_append_item (page, &top, item->data);
+        }
+    }
+
+    gtk_tree_store_append (page->store, &top, NULL);
+    gtk_tree_store_set (page->store, &top,
+                        COL_KIND, ROW_AVAILABLE,
+                        COL_LABEL, _("Not on any toolbar"),
+                        -1);
+
+    n_items = nemo_toolbar_layout_get_n_items ();
+
+    for (i = 0; i < n_items; i++) {
+        const NemoToolbarItemInfo *info = nemo_toolbar_layout_get_item (i);
+
+        if (!g_hash_table_contains (used, info->id)) {
+            toolbar_page_append_item (page, &top, info->id);
+        }
+    }
+
+    for (l = nemo_action_manager_list_actions (page->actions); l != NULL; l = l->next) {
+        g_autofree gchar *id = g_strconcat (NEMO_TOOLBAR_ACTION_PREFIX,
+                                            NEMO_ACTION (l->data)->uuid, NULL);
+
+        if (!g_hash_table_contains (used, id)) {
+            toolbar_page_append_item (page, &top, id);
+        }
+    }
+
+    g_hash_table_destroy (used);
+    gtk_tree_view_expand_all (GTK_TREE_VIEW (page->view));
+
+    page->updating = FALSE;
+}
+
+static gboolean
+toolbar_page_commit_idle (gpointer data)
+{
+    ToolbarPage *page = data;
+
+    page->commit_id = 0;
+    toolbar_page_commit (page);
+
+    return G_SOURCE_REMOVE;
+}
+
+static void
+toolbar_page_drag_end (GtkWidget      *widget,
+                       GdkDragContext *context,
+                       ToolbarPage    *page)
+{
+    /* Let the tree finish applying the drop before reading it back. */
+    if (page->commit_id == 0) {
+        page->commit_id = g_idle_add (toolbar_page_commit_idle, page);
+    }
+}
+
+static void
+toolbar_page_visible_toggled (GtkCellRendererToggle *renderer,
+                              gchar                 *path,
+                              ToolbarPage           *page)
+{
+    GtkTreeIter iter;
+    gboolean visible;
+
+    if (!gtk_tree_model_get_iter_from_string (GTK_TREE_MODEL (page->store), &iter, path)) {
+        return;
+    }
+
+    gtk_tree_model_get (GTK_TREE_MODEL (page->store), &iter, COL_VISIBLE, &visible, -1);
+    gtk_tree_store_set (page->store, &iter, COL_VISIBLE, !visible, -1);
+
+    toolbar_page_commit (page);
+}
+
+static void
+toolbar_page_add_bar (GtkButton   *button,
+                      ToolbarPage *page)
+{
+    GtkTreeIter iter;
+
+    gtk_tree_store_append (page->store, &iter, NULL);
+    gtk_tree_store_set (page->store, &iter,
+                        COL_KIND, ROW_BAR,
+                        COL_VISIBLE, TRUE,
+                        COL_SHOW_CHECK, TRUE,
+                        -1);
+
+    toolbar_page_commit (page);
+}
+
+static void
+toolbar_page_remove_bar (GtkButton   *button,
+                         ToolbarPage *page)
+{
+    GtkTreeSelection *selection;
+    GtkTreeModel *model;
+    GtkTreeIter iter, parent;
+    gint kind;
+
+    selection = gtk_tree_view_get_selection (GTK_TREE_VIEW (page->view));
+
+    if (!gtk_tree_selection_get_selected (selection, &model, &iter)) {
+        return;
+    }
+
+    gtk_tree_model_get (model, &iter, COL_KIND, &kind, -1);
+
+    /* Having one of its buttons selected is a fair way to mean the toolbar. */
+    if (kind == ROW_ITEM && gtk_tree_model_iter_parent (model, &parent, &iter)) {
+        iter = parent;
+        gtk_tree_model_get (model, &iter, COL_KIND, &kind, -1);
+    }
+
+    if (kind != ROW_BAR) {
+        return;
+    }
+
+    gtk_tree_store_remove (page->store, &iter);
+    toolbar_page_commit (page);
+}
+
+static void
+setup_toolbar_page (GtkBuilder *builder)
+{
+    ToolbarPage *page;
+    GtkWidget *box, *scrolled, *controls, *add, *remove, *hint;
+    GtkTreeViewColumn *column;
+    GtkCellRenderer *renderer;
+
+    box = GTK_WIDGET (gtk_builder_get_object (builder, "toolbar_layout_box"));
+
+    page = g_new0 (ToolbarPage, 1);
+
+    /* Actions load in the background, so the list is refreshed when they land. */
+    page->actions = nemo_action_manager_new ();
+    g_signal_connect_swapped (page->actions, "changed",
+                              G_CALLBACK (toolbar_page_fill), page);
+
+    page->store = gtk_tree_store_new (N_TOOLBAR_COLS,
+                                      G_TYPE_INT,
+                                      G_TYPE_ICON,
+                                      G_TYPE_STRING,
+                                      G_TYPE_STRING,
+                                      G_TYPE_BOOLEAN,
+                                      G_TYPE_BOOLEAN);
+
+    page->view = gtk_tree_view_new_with_model (GTK_TREE_MODEL (page->store));
+    gtk_tree_view_set_headers_visible (GTK_TREE_VIEW (page->view), FALSE);
+    gtk_tree_view_set_reorderable (GTK_TREE_VIEW (page->view), TRUE);
+
+    column = gtk_tree_view_column_new ();
+
+    renderer = gtk_cell_renderer_toggle_new ();
+    gtk_tree_view_column_pack_start (column, renderer, FALSE);
+    gtk_tree_view_column_add_attribute (column, renderer, "active", COL_VISIBLE);
+    gtk_tree_view_column_add_attribute (column, renderer, "visible", COL_SHOW_CHECK);
+    g_signal_connect (renderer, "toggled", G_CALLBACK (toolbar_page_visible_toggled), page);
+
+    renderer = gtk_cell_renderer_pixbuf_new ();
+    gtk_tree_view_column_pack_start (column, renderer, FALSE);
+    gtk_tree_view_column_add_attribute (column, renderer, "gicon", COL_ICON);
+
+    renderer = gtk_cell_renderer_text_new ();
+    gtk_tree_view_column_pack_start (column, renderer, TRUE);
+    gtk_tree_view_column_add_attribute (column, renderer, "text", COL_LABEL);
+
+    gtk_tree_view_append_column (GTK_TREE_VIEW (page->view), column);
+
+    g_signal_connect (page->view, "drag-end", G_CALLBACK (toolbar_page_drag_end), page);
+
+    hint = gtk_label_new (_("Drag buttons to reorder them or to move them between toolbars."));
+    gtk_label_set_xalign (GTK_LABEL (hint), 0);
+    gtk_style_context_add_class (gtk_widget_get_style_context (hint), GTK_STYLE_CLASS_DIM_LABEL);
+
+    scrolled = gtk_scrolled_window_new (NULL, NULL);
+    gtk_scrolled_window_set_policy (GTK_SCROLLED_WINDOW (scrolled),
+                                    GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
+    gtk_scrolled_window_set_shadow_type (GTK_SCROLLED_WINDOW (scrolled), GTK_SHADOW_IN);
+    gtk_widget_set_vexpand (scrolled, TRUE);
+    gtk_container_add (GTK_CONTAINER (scrolled), page->view);
+
+    controls = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 6);
+    add = gtk_button_new_with_label (_("Add Toolbar"));
+    remove = gtk_button_new_with_label (_("Remove Toolbar"));
+    gtk_box_pack_start (GTK_BOX (controls), add, FALSE, FALSE, 0);
+    gtk_box_pack_start (GTK_BOX (controls), remove, FALSE, FALSE, 0);
+
+    g_signal_connect (add, "clicked", G_CALLBACK (toolbar_page_add_bar), page);
+    g_signal_connect (remove, "clicked", G_CALLBACK (toolbar_page_remove_bar), page);
+
+    gtk_box_pack_start (GTK_BOX (box), hint, FALSE, FALSE, 0);
+    gtk_box_pack_start (GTK_BOX (box), scrolled, TRUE, TRUE, 0);
+    gtk_box_pack_start (GTK_BOX (box), controls, FALSE, FALSE, 0);
+
+    g_object_set_data_full (G_OBJECT (box), "nemo-toolbar-page", page, toolbar_page_free);
+
+    toolbar_page_fill (page);
+    gtk_widget_show_all (box);
+}
+
 static  void
 nemo_file_management_properties_dialog_setup (GtkBuilder  *builder,
                                               GtkWindow   *window,
@@ -885,52 +1274,7 @@ nemo_file_management_properties_dialog_setup (GtkBuilder  *builder,
 	create_date_format_menu (builder);
 
 
-	/* nemo patch */
-	bind_builder_bool (builder, nemo_preferences,
-			   NEMO_FILE_MANAGEMENT_PROPERTIES_SHOW_PREVIOUS_ICON_TOOLBAR_WIDGET,
-			   NEMO_PREFERENCES_SHOW_PREVIOUS_ICON_TOOLBAR);
-	bind_builder_bool (builder, nemo_preferences,
-			   NEMO_FILE_MANAGEMENT_PROPERTIES_SHOW_NEXT_ICON_TOOLBAR_WIDGET,
-			   NEMO_PREFERENCES_SHOW_NEXT_ICON_TOOLBAR);
-	bind_builder_bool (builder, nemo_preferences,
-			   NEMO_FILE_MANAGEMENT_PROPERTIES_SHOW_UP_ICON_TOOLBAR_WIDGET,
-			   NEMO_PREFERENCES_SHOW_UP_ICON_TOOLBAR);
-	bind_builder_bool (builder, nemo_preferences,
-			   NEMO_FILE_MANAGEMENT_PROPERTIES_SHOW_RELOAD_ICON_TOOLBAR_WIDGET,
-			   NEMO_PREFERENCES_SHOW_RELOAD_ICON_TOOLBAR);
-	bind_builder_bool (builder, nemo_preferences,
-			   NEMO_FILE_MANAGEMENT_PROPERTIES_SHOW_EDIT_ICON_TOOLBAR_WIDGET,
-			   NEMO_PREFERENCES_SHOW_EDIT_ICON_TOOLBAR);
-	bind_builder_bool (builder, nemo_preferences,
-			   NEMO_FILE_MANAGEMENT_PROPERTIES_SHOW_HOME_ICON_TOOLBAR_WIDGET,
-			   NEMO_PREFERENCES_SHOW_HOME_ICON_TOOLBAR);
-	bind_builder_bool (builder, nemo_preferences,
-			   NEMO_FILE_MANAGEMENT_PROPERTIES_SHOW_COMPUTER_ICON_TOOLBAR_WIDGET,
-			   NEMO_PREFERENCES_SHOW_COMPUTER_ICON_TOOLBAR);
-	bind_builder_bool (builder, nemo_preferences,
-			   NEMO_FILE_MANAGEMENT_PROPERTIES_SHOW_SEARCH_ICON_TOOLBAR_WIDGET,
-			   NEMO_PREFERENCES_SHOW_SEARCH_ICON_TOOLBAR);
-    bind_builder_bool (builder, nemo_preferences,
-        NEMO_FILE_MANAGEMENT_PROPERTIES_SHOW_NEW_FOLDER_ICON_TOOLBAR_WIDGET,
-        NEMO_PREFERENCES_SHOW_NEW_FOLDER_ICON_TOOLBAR);
-    bind_builder_bool (builder, nemo_preferences,
-        NEMO_FILE_MANAGEMENT_PROPERTIES_SHOW_OPEN_IN_TERMINAL_ICON_TOOLBAR_WIDGET,
-        NEMO_PREFERENCES_SHOW_OPEN_IN_TERMINAL_TOOLBAR);
-    bind_builder_bool (builder, nemo_preferences,
-        NEMO_FILE_MANAGEMENT_PROPERTIES_SHOW_TOGGLE_EXTRA_PANE_ICON_TOOLBAR_WIDGET,
-        NEMO_PREFERENCES_SHOW_TOGGLE_EXTRA_PANE_TOOLBAR);
-    bind_builder_bool (builder, nemo_preferences,
-			   NEMO_FILE_MANAGEMENT_PROPERTIES_SHOW_ICON_VIEW_ICON_TOOLBAR_WIDGET,
-			   NEMO_PREFERENCES_SHOW_ICON_VIEW_ICON_TOOLBAR);
-    bind_builder_bool (builder, nemo_preferences,
-			   NEMO_FILE_MANAGEMENT_PROPERTIES_SHOW_LIST_VIEW_ICON_TOOLBAR_WIDGET,
-			   NEMO_PREFERENCES_SHOW_LIST_VIEW_ICON_TOOLBAR);
-    bind_builder_bool (builder, nemo_preferences,
-			   NEMO_FILE_MANAGEMENT_PROPERTIES_SHOW_COMPACT_VIEW_ICON_TOOLBAR_WIDGET,
-			   NEMO_PREFERENCES_SHOW_COMPACT_VIEW_ICON_TOOLBAR);
-    bind_builder_bool (builder, nemo_preferences,
-			   NEMO_FILE_MANAGEMENT_PROPERTIES_SHOW_SHOW_THUMBNAILS_ICON_TOOLBAR_WIDGET,
-			   NEMO_PREFERENCES_SHOW_SHOW_THUMBNAILS_TOOLBAR);
+	setup_toolbar_page (builder);
 
 	/* setup preferences */
 	bind_builder_bool (builder, nemo_icon_view_preferences,

@@ -1199,6 +1199,12 @@ nemo_window_pane_sync_location_widgets (NemoWindowPane *pane)
 	}
 
     nemo_toolbar_update_for_location (NEMO_TOOLBAR (pane->tool_bar));
+
+    /* User action buttons belong to the view showing them, so they follow
+     * whichever tab is on top. */
+    nemo_toolbar_set_action_view (NEMO_TOOLBAR (pane->tool_bar),
+                                  pane->active_slot != NULL ? pane->active_slot->content_view
+                                                            : NULL);
 }
 
 static void
