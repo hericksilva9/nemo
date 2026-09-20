@@ -49,6 +49,7 @@ struct _NemoToolbarPriv {
     GtkSizeGroup *row_sizes;
 
     GtkWidget *pathbar_holder;
+    GtkWidget *pane_rows;
 	GtkWidget *path_bar;
 	GtkWidget *location_bar;
     GtkWidget *root_bar;
@@ -69,9 +70,6 @@ struct _NemoToolbarPriv {
 	gboolean show_main_bar;
 	gboolean show_location_entry;
     gboolean show_root_bar;
-
-    /* Set while the path bar hangs outside the toolbar, in the window pane. */
-    gboolean path_bar_external;
 };
 
 enum {
@@ -122,11 +120,13 @@ toolbar_update_appearance (NemoToolbar *self)
     nemo_toolbar_update_root_state (self);
 
     for (l = self->priv->rows; l != NULL; l = l->next) {
-        gboolean bar_visible;
+        gboolean bar_visible, in_pane;
 
         bar_visible = GPOINTER_TO_INT (g_object_get_data (G_OBJECT (l->data), ROW_VISIBLE_KEY));
+        in_pane = gtk_widget_get_parent (GTK_WIDGET (l->data)) == self->priv->pane_rows;
+
         gtk_widget_set_visible (GTK_WIDGET (l->data),
-                                self->priv->show_main_bar && bar_visible);
+                                bar_visible && (in_pane || self->priv->show_main_bar));
     }
 
     if (self->priv->show_location_entry) {
@@ -551,12 +551,6 @@ build_row (NemoToolbar    *self,
         const NemoToolbarItemInfo *info;
 
         if (g_strcmp0 (l->data, NEMO_TOOLBAR_ITEM_PATHBAR) == 0) {
-            /* Its spot is kept in the layout, so it comes back where it was if
-             * the path bar is moved off the pane again. */
-            if (self->priv->path_bar_external) {
-                continue;
-            }
-
             flush_button_box (row, &box, after_pathbar, TRUE);
             add_pathbar_item (self, row);
             after_pathbar = TRUE;
@@ -606,7 +600,7 @@ rebuild_rows (NemoToolbar *self)
      * window pane connected to it survive a layout change. */
     parent = gtk_widget_get_parent (self->priv->pathbar_holder);
 
-    if (parent != NULL && gtk_widget_is_ancestor (parent, GTK_WIDGET (self))) {
+    if (parent != NULL) {
         gtk_container_remove (GTK_CONTAINER (parent), self->priv->pathbar_holder);
     }
 
@@ -626,10 +620,12 @@ rebuild_rows (NemoToolbar *self)
     bars = nemo_toolbar_layout_get_bars (self->priv->layout);
 
     for (l = bars; l != NULL; l = l->next) {
+        NemoToolbarBar *bar = l->data;
         GtkWidget *row;
 
-        row = build_row (self, l->data);
-        gtk_box_pack_start (GTK_BOX (self), row, TRUE, TRUE, 0);
+        row = build_row (self, bar);
+        gtk_box_pack_start (bar->in_pane ? GTK_BOX (self->priv->pane_rows) : GTK_BOX (self),
+                            row, TRUE, TRUE, 0);
         gtk_size_group_add_widget (self->priv->row_sizes, row);
         self->priv->rows = g_list_append (self->priv->rows, row);
     }
@@ -678,6 +674,11 @@ nemo_toolbar_constructed (GObject *obj)
     gtk_widget_show_all (hbox);
 
     self->priv->pathbar_holder = g_object_ref_sink (hbox);
+
+    /* Held the same way, for the same reason: the window pane parents it, and
+     * rebuilding the rows must not take it down with them. */
+    self->priv->pane_rows = g_object_ref_sink (gtk_box_new (GTK_ORIENTATION_VERTICAL, 0));
+    gtk_widget_show (self->priv->pane_rows);
 
     setup_root_info_bar (self);
 
@@ -763,6 +764,7 @@ nemo_toolbar_dispose (GObject *obj)
 	g_clear_object (&self->priv->action_manager);
 	g_clear_object (&self->priv->action_group);
 	g_clear_object (&self->priv->pathbar_holder);
+	g_clear_object (&self->priv->pane_rows);
 	g_clear_object (&self->priv->row_sizes);
 
 	g_list_free (self->priv->rows);
@@ -846,18 +848,10 @@ nemo_toolbar_get_path_bar_holder (NemoToolbar *self)
 	return self->priv->pathbar_holder;
 }
 
-/* Turning this on leaves the holder unparented for the caller to place; turning
- * it off expects the caller to have taken it out of wherever it had put it. */
-void
-nemo_toolbar_set_path_bar_external (NemoToolbar *self,
-				    gboolean external)
+GtkWidget *
+nemo_toolbar_get_pane_rows (NemoToolbar *self)
 {
-	if (external == self->priv->path_bar_external) {
-		return;
-	}
-
-	self->priv->path_bar_external = external;
-	rebuild_rows (self);
+	return self->priv->pane_rows;
 }
 
 gboolean

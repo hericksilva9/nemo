@@ -51,6 +51,11 @@ typedef struct {
 
 typedef struct {
     gboolean  visible;
+
+    /* Drawn at the top of every pane, above its tabs, rather than in one strip
+     * under the menu.  A split view then gets one of these bars per pane. */
+    gboolean  in_pane;
+
     GList    *items;
 } NemoToolbarBar;
 

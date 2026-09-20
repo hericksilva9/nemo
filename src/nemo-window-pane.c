@@ -62,8 +62,10 @@ static GParamSpec *properties[NUM_PROPERTIES] = { NULL, };
 G_DEFINE_TYPE (NemoWindowPane, nemo_window_pane,
 	       GTK_TYPE_BOX)
 
-/* The path bar can sit on the toolbar or at the top of the pane, above the tabs.
- * Its widget is the same either way, so where it hangs is the whole answer. */
+/* Whether the path bar is one this pane draws above its own tabs, as opposed to
+ * one in the strip under the menu that only the active pane gets and that the
+ * View menu can hide. Ctrl+L needs to know which, to decide whether it has to
+ * raise a toolbar first. */
 gboolean
 nemo_window_pane_path_bar_is_in_pane (NemoWindowPane *pane)
 {
@@ -71,55 +73,8 @@ nemo_window_pane_path_bar_is_in_pane (NemoWindowPane *pane)
 
 	holder = nemo_toolbar_get_path_bar_holder (NEMO_TOOLBAR (pane->tool_bar));
 
-	return gtk_widget_get_parent (holder) == GTK_WIDGET (pane);
-}
-
-static void
-nemo_window_pane_sync_path_bar_placement (NemoWindowPane *pane)
-{
-	NemoToolbar *toolbar;
-	GtkWidget *holder;
-	gboolean in_pane, disable_chrome;
-
-	toolbar = NEMO_TOOLBAR (pane->tool_bar);
-	holder = nemo_toolbar_get_path_bar_holder (toolbar);
-
-	g_object_get (pane->window, "disable-chrome", &disable_chrome, NULL);
-
-	in_pane = g_settings_get_boolean (nemo_preferences,
-					  NEMO_PREFERENCES_PATH_BAR_IN_PANE);
-
-	/* A window without chrome, the desktop included, shows no path bar at all,
-	 * and the pane is the one place the toolbar's own visibility can't hide. */
-	if (disable_chrome || NEMO_IS_DESKTOP_WINDOW (pane->window)) {
-		in_pane = FALSE;
-	}
-
-	if (in_pane == nemo_window_pane_path_bar_is_in_pane (pane)) {
-		return;
-	}
-
-	if (in_pane) {
-		nemo_toolbar_set_path_bar_external (toolbar, TRUE);
-
-		gtk_widget_set_margin_start (holder, 6);
-		gtk_widget_set_margin_end (holder, 6);
-		gtk_widget_set_margin_top (holder, 3);
-		gtk_widget_set_margin_bottom (holder, 3);
-
-		gtk_box_pack_start (GTK_BOX (pane), holder, FALSE, FALSE, 0);
-		gtk_box_reorder_child (GTK_BOX (pane), holder, 0);
-		gtk_widget_show (holder);
-	} else {
-		gtk_container_remove (GTK_CONTAINER (pane), holder);
-
-		gtk_widget_set_margin_start (holder, 0);
-		gtk_widget_set_margin_end (holder, 0);
-		gtk_widget_set_margin_top (holder, 0);
-		gtk_widget_set_margin_bottom (holder, 0);
-
-		nemo_toolbar_set_path_bar_external (toolbar, FALSE);
-	}
+	return gtk_widget_is_ancestor (holder, GTK_WIDGET (pane)) &&
+	       gtk_widget_is_visible (holder);
 }
 
 static gboolean
@@ -969,6 +924,7 @@ nemo_window_pane_constructed (GObject *obj)
 	GtkSizeGroup *header_size_group;
 	NemoWindow *window;
 	GtkActionGroup *action_group;
+	gboolean disable_chrome;
 
 	G_OBJECT_CLASS (nemo_window_pane_parent_class)->constructed (obj);
 
@@ -1039,12 +995,16 @@ nemo_window_pane_constructed (GObject *obj)
 	g_signal_connect_object (nemo_location_bar_get_entry (NEMO_LOCATION_BAR (pane->location_bar)), "focus-in-event",
 				 G_CALLBACK (toolbar_focus_in_callback), pane, 0);
 
-	g_signal_connect_object (nemo_preferences,
-				 "changed::" NEMO_PREFERENCES_PATH_BAR_IN_PANE,
-				 G_CALLBACK (nemo_window_pane_sync_path_bar_placement),
-				 pane, G_CONNECT_SWAPPED);
+	/* Rows the layout puts in the pane are built by the toolbar like any other,
+	 * into a box of their own that lives here, above the tabs. A window with no
+	 * chrome, the desktop included, leaves them where they are, unparented. */
+	g_object_get (window, "disable-chrome", &disable_chrome, NULL);
 
-	nemo_window_pane_sync_path_bar_placement (pane);
+	if (!disable_chrome && !NEMO_IS_DESKTOP_WINDOW (window)) {
+		gtk_box_pack_start (GTK_BOX (pane),
+				    nemo_toolbar_get_pane_rows (NEMO_TOOLBAR (pane->tool_bar)),
+				    FALSE, FALSE, 0);
+	}
 
 	/* initialize the notebook */
 	pane->notebook = g_object_new (NEMO_TYPE_NOTEBOOK, NULL);

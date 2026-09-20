@@ -285,9 +285,14 @@ test_saved_file_round_trips (void)
 
     hidden = bar_with (NEMO_ACTION_ICON_VIEW, "action:1234-abcd", NULL);
     hidden->visible = FALSE;
+    hidden->in_pane = TRUE;
     bars = g_list_append (bars, hidden);
 
     nemo_toolbar_layout_set_bars (layout, bars);
+
+    bars = nemo_toolbar_layout_get_bars (layout);
+    g_assert_false (((NemoToolbarBar *) bars->data)->in_pane);
+    g_assert_true (((NemoToolbarBar *) bars->next->data)->in_pane);
 
     parser = json_parser_new ();
     g_assert_true (json_parser_load_from_file (parser, path, NULL));
@@ -300,11 +305,15 @@ test_saved_file_round_trips (void)
 
     saved = json_array_get_object_element (saved_bars, 0);
     g_assert_true (json_object_get_boolean_member (saved, "visible"));
+    g_assert_false (json_object_get_boolean_member (saved, "in_pane"));
     g_assert_cmpstr (json_array_get_string_element (json_object_get_array_member (saved, "items"), 0),
                      ==, NEMO_TOOLBAR_ITEM_PATHBAR);
 
     saved = json_array_get_object_element (saved_bars, 1);
     g_assert_false (json_object_get_boolean_member (saved, "visible"));
+
+    /* Where the bar is drawn survives the file, so a pane bar stays one. */
+    g_assert_true (json_object_get_boolean_member (saved, "in_pane"));
 
     /* A user action is stored by uuid, whether or not its file is installed. */
     g_assert_cmpstr (json_array_get_string_element (json_object_get_array_member (saved, "items"), 1),
