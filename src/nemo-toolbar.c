@@ -30,10 +30,12 @@
 #include "nemo-location-bar.h"
 #include "nemo-pathbar.h"
 #include "nemo-toolbar-layout.h"
+#include "nemo-view.h"
 #include "nemo-window-private.h"
 #include "nemo-actions.h"
 #include "nemo-file-utilities.h"
 #include <glib/gi18n.h>
+#include <libnemo-private/nemo-action-manager.h>
 #include <libnemo-private/nemo-global-preferences.h>
 #include <libnemo-private/nemo-ui-utilities.h>
 
@@ -53,6 +55,12 @@ struct _NemoToolbarPriv {
     GtkWidget *stack;
 
     NemoToolbarLayout *layout;
+
+    /* The toolbar keeps action objects of its own. The ones a view holds are
+     * hidden whenever it rebuilds its menus (nemo-action-manager.c), so a
+     * button watching those would blink out with every menu refresh. */
+    NemoActionManager *action_manager;
+    NemoView *action_view; /* weak: whichever tab is on top */
 
 	gboolean show_main_bar;
 	gboolean show_location_entry;
@@ -76,6 +84,9 @@ enum {
 static guint signals[LAST_SIGNAL] = { 0 };
 
 G_DEFINE_TYPE (NemoToolbar, nemo_toolbar, GTK_TYPE_BOX);
+
+static void toolbar_forget_action_view (NemoToolbar *self);
+static void toolbar_sync_action_states (NemoToolbar *self);
 
 static void
 nemo_toolbar_update_root_state (NemoToolbar *self)
@@ -136,13 +147,11 @@ setup_root_info_bar (NemoToolbar *self) {
 }
 
 static GtkWidget *
-toolbar_create_toolbutton (NemoToolbar *self,
-                gboolean create_toggle,
-                const gchar *name)
+toolbar_button_for_action (GtkAction *action,
+                           gboolean   create_toggle)
 {
     GtkWidget *button;
     GtkWidget *image;
-    GtkAction *action;
 
     if (create_toggle)
     {
@@ -154,12 +163,121 @@ toolbar_create_toolbutton (NemoToolbar *self,
     image = gtk_image_new ();
 
     gtk_button_set_image (GTK_BUTTON (button), image);
-    action = gtk_action_group_get_action (self->priv->action_group, name);
     gtk_activatable_set_related_action (GTK_ACTIVATABLE (button), action);
     gtk_button_set_label (GTK_BUTTON (button), NULL);
     gtk_widget_set_tooltip_text (button, gtk_action_get_tooltip (action));
     gtk_widget_set_can_focus (button, FALSE);
     gtk_style_context_add_class (gtk_widget_get_style_context (button), GTK_STYLE_CLASS_FLAT);
+
+    return button;
+}
+
+static GtkWidget *
+toolbar_create_toolbutton (NemoToolbar *self,
+                gboolean create_toggle,
+                const gchar *name)
+{
+    return toolbar_button_for_action (gtk_action_group_get_action (self->priv->action_group, name),
+                                      create_toggle);
+}
+
+static GtkWindow *
+toolbar_get_window (NemoToolbar *self)
+{
+    GtkWidget *toplevel = gtk_widget_get_toplevel (GTK_WIDGET (self));
+
+    return GTK_IS_WINDOW (toplevel) ? GTK_WINDOW (toplevel) : NULL;
+}
+
+static void
+toolbar_action_activated (NemoAction  *action,
+                          NemoToolbar *self)
+{
+    GList *selection;
+
+    if (self->priv->action_view == NULL) {
+        return;
+    }
+
+    selection = nemo_view_get_selection (self->priv->action_view);
+
+    nemo_action_activate (action, selection,
+                          nemo_view_get_directory_as_file (self->priv->action_view),
+                          toolbar_get_window (self));
+
+    nemo_file_list_free (selection);
+}
+
+/* Whether an action applies depends on what is selected, which only the view
+ * knows, so its state is recomputed here rather than read off the view. */
+static void
+toolbar_sync_action_states (NemoToolbar *self)
+{
+    GList *selection, *l;
+    NemoFile *parent;
+    GtkWindow *window;
+
+    if (self->priv->action_view == NULL) {
+        return;
+    }
+
+    window = toolbar_get_window (self);
+
+    if (window == NULL) {
+        return;
+    }
+
+    selection = nemo_view_get_selection (self->priv->action_view);
+    parent = nemo_view_get_directory_as_file (self->priv->action_view);
+
+    for (l = nemo_action_manager_list_actions (self->priv->action_manager); l != NULL; l = l->next) {
+        nemo_action_update_display_state (NEMO_ACTION (l->data), selection, parent, FALSE, window);
+    }
+
+    nemo_file_list_free (selection);
+}
+
+/* A user action only applies to some selections, so its button follows the
+ * action's own visibility instead of being forced on by gtk_widget_show_all. */
+static GtkWidget *
+toolbar_create_action_button (NemoToolbar *self,
+                              const gchar *id)
+{
+    NemoAction *action;
+    GtkWidget *button;
+    GIcon *icon;
+
+    action = nemo_action_manager_get_action (self->priv->action_manager,
+                                             nemo_toolbar_layout_action_uuid (id));
+
+    if (action == NULL) {
+        return NULL;
+    }
+
+    g_signal_handlers_disconnect_by_func (action, toolbar_action_activated, self);
+    g_signal_connect (action, "activate", G_CALLBACK (toolbar_action_activated), self);
+
+    button = toolbar_button_for_action (GTK_ACTION (action), FALSE);
+
+    /* The action's label is recomputed for every selection, and syncing it onto
+     * the button would replace the icon with text. Only the action's state and
+     * activation are wanted here, so its appearance is taken over. */
+    gtk_activatable_set_use_action_appearance (GTK_ACTIVATABLE (button), FALSE);
+    gtk_button_set_label (GTK_BUTTON (button), NULL);
+
+    /* A user action carries a GIcon rather than an icon name. */
+    icon = gtk_action_get_gicon (GTK_ACTION (action));
+
+    if (icon != NULL) {
+        gtk_button_set_image (GTK_BUTTON (button),
+                              gtk_image_new_from_gicon (icon, GTK_ICON_SIZE_BUTTON));
+    }
+
+    /* Show the image first: no-show-all stops gtk_widget_show_all descending
+     * into the button, which would otherwise leave it empty. */
+    gtk_widget_show_all (button);
+    gtk_widget_set_no_show_all (button, TRUE);
+    gtk_widget_set_visible (button, gtk_action_is_visible (GTK_ACTION (action)));
 
     return button;
 }
@@ -230,6 +348,21 @@ build_row (NemoToolbar    *self,
             continue;
         }
 
+        if (nemo_toolbar_layout_id_is_action (l->data)) {
+            GtkWidget *button = toolbar_create_action_button (self, l->data);
+
+            if (button == NULL) {
+                continue;
+            }
+
+            if (box == NULL) {
+                box = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 2);
+            }
+
+            gtk_container_add (GTK_CONTAINER (box), button);
+            continue;
+        }
+
         info = nemo_toolbar_layout_lookup_item (l->data);
 
         if (box == NULL) {
@@ -285,6 +418,9 @@ rebuild_rows (NemoToolbar *self)
     gtk_box_reorder_child (GTK_BOX (self), self->priv->root_bar, -1);
 
     toolbar_update_appearance (self);
+
+    /* Fresh action objects start out with no idea of the current selection. */
+    toolbar_sync_action_states (self);
 }
 
 static void
@@ -324,6 +460,12 @@ nemo_toolbar_constructed (GObject *obj)
     self->priv->pathbar_holder = g_object_ref_sink (hbox);
 
     setup_root_info_bar (self);
+
+    self->priv->action_manager = nemo_action_manager_new ();
+
+    /* Actions load in the background, and editing one rebuilds the objects. */
+    g_signal_connect_swapped (self->priv->action_manager, "changed",
+                              G_CALLBACK (rebuild_rows), self);
 
     self->priv->layout = nemo_toolbar_layout_get_default ();
 
@@ -396,6 +538,9 @@ nemo_toolbar_dispose (GObject *obj)
 {
 	NemoToolbar *self = NEMO_TOOLBAR (obj);
 
+	toolbar_forget_action_view (self);
+
+	g_clear_object (&self->priv->action_manager);
 	g_clear_object (&self->priv->action_group);
 	g_clear_object (&self->priv->pathbar_holder);
 	g_clear_object (&self->priv->row_sizes);
@@ -506,4 +651,39 @@ void
 nemo_toolbar_update_for_location (NemoToolbar *self)
 {
     toolbar_update_appearance (self);
+}
+
+static void
+toolbar_forget_action_view (NemoToolbar *self)
+{
+    if (self->priv->action_view == NULL) {
+        return;
+    }
+
+    g_signal_handlers_disconnect_by_func (self->priv->action_view, toolbar_sync_action_states, self);
+    g_object_remove_weak_pointer (G_OBJECT (self->priv->action_view),
+                                  (gpointer *) &self->priv->action_view);
+    self->priv->action_view = NULL;
+}
+
+void
+nemo_toolbar_set_action_view (NemoToolbar *self,
+                              NemoView    *view)
+{
+    if (view == self->priv->action_view) {
+        toolbar_sync_action_states (self);
+        return;
+    }
+
+    toolbar_forget_action_view (self);
+
+    if (view != NULL) {
+        self->priv->action_view = view;
+        g_object_add_weak_pointer (G_OBJECT (view), (gpointer *) &self->priv->action_view);
+
+        g_signal_connect_swapped (view, "selection-changed",
+                                  G_CALLBACK (toolbar_sync_action_states), self);
+    }
+
+    toolbar_sync_action_states (self);
 }
