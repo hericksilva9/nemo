@@ -38,6 +38,7 @@
 
 #include <libnemo-private/nemo-column-chooser.h>
 #include <libnemo-private/nemo-column-utilities.h>
+#include <libnemo-private/nemo-action-manager.h>
 #include <libnemo-private/nemo-global-preferences.h>
 #include <libnemo-private/nemo-module.h>
 
@@ -872,10 +873,11 @@ enum {
 };
 
 typedef struct {
-    GtkTreeStore *store;
-    GtkWidget    *view;
-    guint         commit_id;
-    gboolean      updating;
+    GtkTreeStore      *store;
+    GtkWidget         *view;
+    NemoActionManager *actions;
+    guint              commit_id;
+    gboolean           updating;
 } ToolbarPage;
 
 static void toolbar_page_fill (ToolbarPage *page);
@@ -889,6 +891,7 @@ toolbar_page_free (gpointer data)
         g_source_remove (page->commit_id);
     }
 
+    g_clear_object (&page->actions);
     g_clear_object (&page->store);
     g_free (page);
 }
@@ -973,18 +976,41 @@ toolbar_page_commit (ToolbarPage *page)
 }
 
 static void
-toolbar_page_append_item (ToolbarPage               *page,
-                          GtkTreeIter               *parent,
-                          const NemoToolbarItemInfo *info)
+toolbar_page_append_item (ToolbarPage *page,
+                          GtkTreeIter *parent,
+                          const gchar *id)
 {
     GtkTreeIter iter;
+    const gchar *icon = NULL;
+    g_autofree gchar *label = NULL;
+
+    if (nemo_toolbar_layout_id_is_action (id)) {
+        const gchar *uuid = nemo_toolbar_layout_action_uuid (id);
+        NemoAction *action;
+
+        action = nemo_action_manager_get_action (page->actions, uuid);
+
+        /* An action whose file is not installed right now still keeps its
+         * place, so it comes back when the file does. */
+        if (action != NULL) {
+            icon = gtk_action_get_icon_name (GTK_ACTION (action));
+            label = g_strdup (nemo_action_get_orig_label (action));
+        } else {
+            label = g_strdup (uuid);
+        }
+    } else {
+        const NemoToolbarItemInfo *info = nemo_toolbar_layout_lookup_item (id);
+
+        icon = info->icon_name;
+        label = g_strdup (_(info->label));
+    }
 
     gtk_tree_store_append (page->store, &iter, parent);
     gtk_tree_store_set (page->store, &iter,
                         COL_KIND, ROW_ITEM,
-                        COL_ICON, info->icon_name,
-                        COL_LABEL, _(info->label),
-                        COL_ID, info->id,
+                        COL_ICON, icon,
+                        COL_LABEL, label,
+                        COL_ID, id,
                         -1);
 }
 
@@ -1017,7 +1043,7 @@ toolbar_page_fill (ToolbarPage *page)
 
         for (item = bar->items; item != NULL; item = item->next) {
             g_hash_table_add (used, item->data);
-            toolbar_page_append_item (page, &top, nemo_toolbar_layout_lookup_item (item->data));
+            toolbar_page_append_item (page, &top, item->data);
         }
     }
 
@@ -1033,7 +1059,16 @@ toolbar_page_fill (ToolbarPage *page)
         const NemoToolbarItemInfo *info = nemo_toolbar_layout_get_item (i);
 
         if (!g_hash_table_contains (used, info->id)) {
-            toolbar_page_append_item (page, &top, info);
+            toolbar_page_append_item (page, &top, info->id);
+        }
+    }
+
+    for (l = nemo_action_manager_list_actions (page->actions); l != NULL; l = l->next) {
+        g_autofree gchar *id = g_strconcat (NEMO_TOOLBAR_ACTION_PREFIX,
+                                            NEMO_ACTION (l->data)->uuid, NULL);
+
+        if (!g_hash_table_contains (used, id)) {
+            toolbar_page_append_item (page, &top, id);
         }
     }
 
@@ -1141,6 +1176,12 @@ setup_toolbar_page (GtkBuilder *builder)
     box = GTK_WIDGET (gtk_builder_get_object (builder, "toolbar_layout_box"));
 
     page = g_new0 (ToolbarPage, 1);
+
+    /* Actions load in the background, so the list is refreshed when they land. */
+    page->actions = nemo_action_manager_new ();
+    g_signal_connect_swapped (page->actions, "changed",
+                              G_CALLBACK (toolbar_page_fill), page);
+
     page->store = gtk_tree_store_new (N_TOOLBAR_COLS,
                                       G_TYPE_INT,
                                       G_TYPE_STRING,
