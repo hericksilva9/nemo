@@ -69,8 +69,12 @@
 #define NEMO_ACTION_OPEN_IN_NEW_TAB "OpenInNewTab"
 #define NEMO_ACTION_LOCATION_OPEN_ALTERNATE "LocationOpenAlternate"
 #define NEMO_ACTION_LOCATION_OPEN_IN_NEW_TAB "LocationOpenInNewTab"
+#define NEMO_ACTION_OPEN_WITH "Open With"
 #define NEMO_ACTION_OTHER_APPLICATION1 "OtherApplication1"
 #define NEMO_ACTION_OTHER_APPLICATION2 "OtherApplication2"
+/* The toolbar's Open With menu keeps its own, since the other two are shown
+ * one or the other depending on where the applications went. */
+#define NEMO_ACTION_OTHER_APPLICATION3 "OtherApplication3"
 #define NEMO_ACTION_NEW_FOLDER "New Folder"
 #define NEMO_ACTION_PROPERTIES "Properties"
 #define NEMO_ACTION_PROPERTIES_ACCEL "PropertiesAccel"

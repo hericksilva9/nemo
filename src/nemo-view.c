@@ -160,6 +160,8 @@
 #define NEMO_VIEW_MENU_PATH_PLACES_MOVETO_ENTRIES_PLACEHOLDER "/MenuBar/Edit/File Items Placeholder/MoveToMenu/PlacesMoveToPlaceHolder"
 #define NEMO_VIEW_MENU_PATH_PLACES_COPYTO_ENTRIES_PLACEHOLDER "/MenuBar/Edit/File Items Placeholder/CopyToMenu/PlacesCopyToPlaceHolder"
 
+#define NEMO_VIEW_TOOLBAR_PATH_APPLICATIONS_PLACEHOLDER "/toolbar-open-with/Applications Placeholder"
+
 #define NEMO_VIEW_TOOLBAR_PATH_BOOKMARK_MOVETO_ENTRIES_PLACEHOLDER "/toolbar-move-to/BookmarkMoveToPlaceHolder"
 #define NEMO_VIEW_TOOLBAR_PATH_BOOKMARK_COPYTO_ENTRIES_PLACEHOLDER "/toolbar-copy-to/BookmarkCopyToPlaceHolder"
 #define NEMO_VIEW_TOOLBAR_PATH_PLACES_MOVETO_ENTRIES_PLACEHOLDER "/toolbar-move-to/PlacesMoveToPlaceHolder"
@@ -4913,6 +4915,19 @@ add_application_to_open_with_menu (NemoView *view,
 
 	menu_item_show_image (ui_manager, popup_placeholder, action_name, TRUE);
 
+	/* Always the same one: the toolbar menu takes every application, so it
+	 * does not have the two placeholders the menus pick between. */
+	gtk_ui_manager_add_ui (ui_manager,
+			       view->details->open_with_merge_id,
+			       NEMO_VIEW_TOOLBAR_PATH_APPLICATIONS_PLACEHOLDER,
+			       action_name,
+			       action_name,
+			       GTK_UI_MANAGER_MENUITEM,
+			       FALSE);
+
+	menu_item_show_image (ui_manager, NEMO_VIEW_TOOLBAR_PATH_APPLICATIONS_PLACEHOLDER,
+			      action_name, TRUE);
+
 	g_free (action_name);
 	g_free (label);
 	g_free (tip);
@@ -4981,6 +4996,7 @@ reset_open_with_menu (NemoView *view, GList *selection, gboolean filter_default)
 	GtkUIManager *ui_manager;
 	GtkAction *action;
 	GAppInfo *default_app;
+	guint n_listed = 0;
 
 	/* Clear any previous inserted items in the applications and viewers placeholders */
 
@@ -5038,6 +5054,8 @@ reset_open_with_menu (NemoView *view, GList *selection, gboolean filter_default)
 			continue;
 		}
 
+		n_listed++;
+
 		if (submenu_visible) {
 			menu_path = (char *)NEMO_VIEW_MENU_PATH_APPLICATIONS_SUBMENU_PLACEHOLDER;
 			popup_path = (char *)NEMO_VIEW_POPUP_PATH_APPLICATIONS_SUBMENU_PLACEHOLDER;
@@ -5067,6 +5085,17 @@ reset_open_with_menu (NemoView *view, GList *selection, gboolean filter_default)
 
 	open_with_chooser_visible = other_applications_visible &&
 		g_list_length (selection) == 1;
+
+	/* The menus keep this one always live -- an empty submenu just sits
+	 * there unnoticed. The toolbar can carry it as a button, which should
+	 * look dead when there would be nothing behind it. */
+	action = gtk_action_group_get_action (view->details->dir_action_group,
+					      NEMO_ACTION_OPEN_WITH);
+	gtk_action_set_sensitive (action, n_listed > 0 || open_with_chooser_visible);
+
+	action = gtk_action_group_get_action (view->details->dir_action_group,
+					      NEMO_ACTION_OTHER_APPLICATION3);
+	gtk_action_set_visible (action, open_with_chooser_visible);
 
 	if (submenu_visible) {
 		action = gtk_action_group_get_action (view->details->dir_action_group,
@@ -8443,6 +8472,10 @@ static const GtkActionEntry directory_view_entries[] = {
 				 G_CALLBACK (action_other_application_callback) },
   /* name, stock id */         { "OtherApplication2", NULL,
   /* label, accelerator */       N_("Open With Other _Application..."), NULL,
+  /* tooltip */                  N_("Choose another application with which to open the selected item"),
+				 G_CALLBACK (action_other_application_callback) },
+  /* name, stock id */         { "OtherApplication3", NULL,
+  /* label, accelerator */       N_("Other _Application..."), NULL,
   /* tooltip */                  N_("Choose another application with which to open the selected item"),
 				 G_CALLBACK (action_other_application_callback) },
   /* name, stock id */         { "Empty Trash", NULL,

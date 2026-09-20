@@ -236,6 +236,14 @@
         <separator name="Properties Separator"/>
         <menuitem name="Properties" action="Properties"/>
 </popup>
+<!-- The toolbar's own copy of the Open With submenu. Unlike the menus, it
+     always holds every application: it has no parent menu to spill them into
+     when there are only one or two. -->
+<popup name="toolbar-open-with">
+	<placeholder name="Applications Placeholder"/>
+	<separator/>
+	<menuitem name="OtherApplication" action="OtherApplication3"/>
+</popup>
 <!-- The toolbar's own copies of the Copy to and Move to submenus. They cannot
      share the ones above: a GtkMenu belongs to the menu item it hangs from. -->
 <popup name="toolbar-copy-to">
