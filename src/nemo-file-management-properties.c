@@ -851,254 +851,355 @@ set_gtk_filechooser_sort_first (GObject *object,
 				gtk_toggle_button_get_active (GTK_TOGGLE_BUTTON (object)));
 }
 
-/* Toolbar page: edits the bar layout held by NemoToolbarLayout. Every change
- * is written straight through, so open windows restyle as you click. */
+/* Toolbar page: edits the bar layout held by NemoToolbarLayout. Bars and the
+ * buttons on them are shown as a tree and rearranged by dragging; every change
+ * is written straight through, so open windows restyle as you drop. */
+
+enum {
+    ROW_BAR,
+    ROW_AVAILABLE,
+    ROW_ITEM
+};
+
+enum {
+    COL_KIND,
+    COL_ICON,
+    COL_LABEL,
+    COL_ID,
+    COL_VISIBLE,
+    COL_SHOW_CHECK,
+    N_TOOLBAR_COLS
+};
 
 typedef struct {
-    GtkWidget *combo;
-    GList     *toggles;
-    gboolean   updating;
+    GtkTreeStore *store;
+    GtkWidget    *view;
+    guint         commit_id;
+    gboolean      updating;
 } ToolbarPage;
 
-#define TOOLBAR_PAGE_ITEM_ID "nemo-toolbar-item-id"
+static void toolbar_page_fill (ToolbarPage *page);
 
 static void
 toolbar_page_free (gpointer data)
 {
     ToolbarPage *page = data;
 
-    g_list_free (page->toggles);
+    if (page->commit_id != 0) {
+        g_source_remove (page->commit_id);
+    }
+
+    g_clear_object (&page->store);
     g_free (page);
 }
 
-static gint
-toolbar_page_selected_bar (ToolbarPage *page)
-{
-    gint active;
-
-    active = gtk_combo_box_get_active (GTK_COMBO_BOX (page->combo));
-
-    return active < 0 ? 0 : active;
-}
-
-static gboolean
-bar_has_item (NemoToolbarBar *bar,
-              const gchar    *id)
-{
-    return g_list_find_custom (bar->items, id, (GCompareFunc) g_strcmp0) != NULL;
-}
-
 static void
-toolbar_page_refresh (ToolbarPage *page)
+toolbar_page_collect_items (GtkTreeModel   *model,
+                            GtkTreeIter    *iter,
+                            NemoToolbarBar *bar)
 {
-    NemoToolbarLayout *layout;
-    NemoToolbarBar *bar;
-    GList *bars, *l;
-    gint selected, n_bars, i;
+    do {
+        GtkTreeIter child;
+        gchar *id = NULL;
+        gint kind;
 
-    layout = nemo_toolbar_layout_get_default ();
-    bars = nemo_toolbar_layout_get_bars (layout);
-    n_bars = g_list_length (bars);
-    selected = MIN (toolbar_page_selected_bar (page), n_bars - 1);
+        gtk_tree_model_get (model, iter, COL_KIND, &kind, COL_ID, &id, -1);
 
-    page->updating = TRUE;
+        if (kind == ROW_ITEM && id != NULL) {
+            bar->items = g_list_append (bar->items, id);
+        } else {
+            g_free (id);
+        }
 
-    gtk_combo_box_text_remove_all (GTK_COMBO_BOX_TEXT (page->combo));
+        /* A drop can leave one button nested under another; flatten it out. */
+        if (gtk_tree_model_iter_children (model, &child, iter)) {
+            toolbar_page_collect_items (model, &child, bar);
+        }
+    } while (gtk_tree_model_iter_next (model, iter));
+}
 
-    for (i = 0; i < n_bars; i++) {
-        g_autofree gchar *name = g_strdup_printf (_("Bar %d"), i + 1);
+static GList *
+toolbar_page_harvest (ToolbarPage *page)
+{
+    GtkTreeModel *model = GTK_TREE_MODEL (page->store);
+    GList *bars = NULL;
+    GtkTreeIter top;
+    gboolean ok;
 
-        gtk_combo_box_text_append_text (GTK_COMBO_BOX_TEXT (page->combo), name);
+    for (ok = gtk_tree_model_get_iter_first (model, &top);
+         ok;
+         ok = gtk_tree_model_iter_next (model, &top)) {
+        NemoToolbarBar *bar;
+        GtkTreeIter child;
+        gboolean visible;
+        gint kind;
+
+        gtk_tree_model_get (model, &top, COL_KIND, &kind, COL_VISIBLE, &visible, -1);
+
+        if (kind != ROW_BAR) {
+            continue;
+        }
+
+        bar = nemo_toolbar_bar_new ();
+        bar->visible = visible;
+
+        if (gtk_tree_model_iter_children (model, &child, &top)) {
+            toolbar_page_collect_items (model, &child, bar);
+        }
+
+        bars = g_list_prepend (bars, bar);
     }
 
-    gtk_combo_box_set_active (GTK_COMBO_BOX (page->combo), selected);
-
-    bar = g_list_nth_data (bars, selected);
-
-    for (l = page->toggles; l != NULL; l = l->next) {
-        const gchar *id = g_object_get_data (G_OBJECT (l->data), TOOLBAR_PAGE_ITEM_ID);
-        gboolean here = bar_has_item (bar, id);
-
-        gtk_toggle_button_set_active (GTK_TOGGLE_BUTTON (l->data), here);
-
-        /* The path bar has to live on some bar, so it can only be moved away,
-         * never switched off where it already is. */
-        gtk_widget_set_sensitive (GTK_WIDGET (l->data),
-                                  !(here && g_strcmp0 (id, NEMO_TOOLBAR_ITEM_PATHBAR) == 0));
-    }
-
-    page->updating = FALSE;
+    return g_list_reverse (bars);
 }
 
 static void
-toolbar_page_commit (ToolbarPage *page,
-                     GList       *bars)
+toolbar_page_commit (ToolbarPage *page)
 {
-    nemo_toolbar_layout_set_bars (nemo_toolbar_layout_get_default (), bars);
-    toolbar_page_refresh (page);
-}
-
-static void
-toolbar_page_item_toggled (GtkToggleButton *button,
-                           ToolbarPage     *page)
-{
-    NemoToolbarLayout *layout;
-    NemoToolbarBar *bar;
-    GList *bars, *l;
-    const gchar *id;
+    GList *bars;
 
     if (page->updating) {
         return;
     }
 
-    layout = nemo_toolbar_layout_get_default ();
-    id = g_object_get_data (G_OBJECT (button), TOOLBAR_PAGE_ITEM_ID);
-    bars = nemo_toolbar_layout_copy_bars (layout);
+    bars = toolbar_page_harvest (page);
 
-    /* An item belongs to one bar at a time, so ticking it here takes it away
-     * from wherever it was. */
-    for (l = bars; l != NULL; l = l->next) {
-        NemoToolbarBar *other = l->data;
-        GList *found;
-
-        while ((found = g_list_find_custom (other->items, id, (GCompareFunc) g_strcmp0)) != NULL) {
-            g_free (found->data);
-            other->items = g_list_delete_link (other->items, found);
-        }
+    if (bars == NULL) {
+        bars = g_list_prepend (NULL, nemo_toolbar_bar_new ());
     }
 
-    if (gtk_toggle_button_get_active (button)) {
-        bar = g_list_nth_data (bars, toolbar_page_selected_bar (page));
-        bar->items = g_list_append (bar->items, g_strdup (id));
-    }
-
-    toolbar_page_commit (page, bars);
+    nemo_toolbar_layout_set_bars (nemo_toolbar_layout_get_default (), bars);
+    toolbar_page_fill (page);
 }
 
 static void
-toolbar_page_bar_changed (GtkComboBox *combo,
-                          ToolbarPage *page)
+toolbar_page_append_item (ToolbarPage               *page,
+                          GtkTreeIter               *parent,
+                          const NemoToolbarItemInfo *info)
 {
-    if (!page->updating) {
-        toolbar_page_refresh (page);
+    GtkTreeIter iter;
+
+    gtk_tree_store_append (page->store, &iter, parent);
+    gtk_tree_store_set (page->store, &iter,
+                        COL_KIND, ROW_ITEM,
+                        COL_ICON, info->icon_name,
+                        COL_LABEL, _(info->label),
+                        COL_ID, info->id,
+                        -1);
+}
+
+static void
+toolbar_page_fill (ToolbarPage *page)
+{
+    GHashTable *used;
+    GList *bars, *l, *item;
+    GtkTreeIter top;
+    guint i, n_items;
+    gint index = 1;
+
+    page->updating = TRUE;
+
+    gtk_tree_store_clear (page->store);
+    used = g_hash_table_new (g_str_hash, g_str_equal);
+    bars = nemo_toolbar_layout_get_bars (nemo_toolbar_layout_get_default ());
+
+    for (l = bars; l != NULL; l = l->next) {
+        NemoToolbarBar *bar = l->data;
+        g_autofree gchar *name = g_strdup_printf (_("Toolbar %d"), index++);
+
+        gtk_tree_store_append (page->store, &top, NULL);
+        gtk_tree_store_set (page->store, &top,
+                            COL_KIND, ROW_BAR,
+                            COL_LABEL, name,
+                            COL_VISIBLE, bar->visible,
+                            COL_SHOW_CHECK, TRUE,
+                            -1);
+
+        for (item = bar->items; item != NULL; item = item->next) {
+            g_hash_table_add (used, item->data);
+            toolbar_page_append_item (page, &top, nemo_toolbar_layout_lookup_item (item->data));
+        }
     }
+
+    gtk_tree_store_append (page->store, &top, NULL);
+    gtk_tree_store_set (page->store, &top,
+                        COL_KIND, ROW_AVAILABLE,
+                        COL_LABEL, _("Not on any toolbar"),
+                        -1);
+
+    n_items = nemo_toolbar_layout_get_n_items ();
+
+    for (i = 0; i < n_items; i++) {
+        const NemoToolbarItemInfo *info = nemo_toolbar_layout_get_item (i);
+
+        if (!g_hash_table_contains (used, info->id)) {
+            toolbar_page_append_item (page, &top, info);
+        }
+    }
+
+    g_hash_table_destroy (used);
+    gtk_tree_view_expand_all (GTK_TREE_VIEW (page->view));
+
+    page->updating = FALSE;
+}
+
+static gboolean
+toolbar_page_commit_idle (gpointer data)
+{
+    ToolbarPage *page = data;
+
+    page->commit_id = 0;
+    toolbar_page_commit (page);
+
+    return G_SOURCE_REMOVE;
+}
+
+static void
+toolbar_page_drag_end (GtkWidget      *widget,
+                       GdkDragContext *context,
+                       ToolbarPage    *page)
+{
+    /* Let the tree finish applying the drop before reading it back. */
+    if (page->commit_id == 0) {
+        page->commit_id = g_idle_add (toolbar_page_commit_idle, page);
+    }
+}
+
+static void
+toolbar_page_visible_toggled (GtkCellRendererToggle *renderer,
+                              gchar                 *path,
+                              ToolbarPage           *page)
+{
+    GtkTreeIter iter;
+    gboolean visible;
+
+    if (!gtk_tree_model_get_iter_from_string (GTK_TREE_MODEL (page->store), &iter, path)) {
+        return;
+    }
+
+    gtk_tree_model_get (GTK_TREE_MODEL (page->store), &iter, COL_VISIBLE, &visible, -1);
+    gtk_tree_store_set (page->store, &iter, COL_VISIBLE, !visible, -1);
+
+    toolbar_page_commit (page);
 }
 
 static void
 toolbar_page_add_bar (GtkButton   *button,
                       ToolbarPage *page)
 {
-    NemoToolbarLayout *layout = nemo_toolbar_layout_get_default ();
-    GList *bars;
+    GtkTreeIter iter;
 
-    bars = nemo_toolbar_layout_copy_bars (layout);
-    bars = g_list_append (bars, nemo_toolbar_bar_new ());
+    gtk_tree_store_append (page->store, &iter, NULL);
+    gtk_tree_store_set (page->store, &iter,
+                        COL_KIND, ROW_BAR,
+                        COL_VISIBLE, TRUE,
+                        COL_SHOW_CHECK, TRUE,
+                        -1);
 
-    nemo_toolbar_layout_set_bars (layout, bars);
-
-    page->updating = TRUE;
-    gtk_combo_box_set_active (GTK_COMBO_BOX (page->combo), g_list_length (bars) - 1);
-    page->updating = FALSE;
-
-    toolbar_page_refresh (page);
+    toolbar_page_commit (page);
 }
 
 static void
 toolbar_page_remove_bar (GtkButton   *button,
                          ToolbarPage *page)
 {
-    NemoToolbarLayout *layout = nemo_toolbar_layout_get_default ();
-    GList *bars, *doomed;
+    GtkTreeSelection *selection;
+    GtkTreeModel *model;
+    GtkTreeIter iter, parent;
+    gint kind;
 
-    bars = nemo_toolbar_layout_copy_bars (layout);
+    selection = gtk_tree_view_get_selection (GTK_TREE_VIEW (page->view));
 
-    if (g_list_length (bars) < 2) {
-        nemo_toolbar_bars_free (bars);
+    if (!gtk_tree_selection_get_selected (selection, &model, &iter)) {
         return;
     }
 
-    doomed = g_list_nth (bars, toolbar_page_selected_bar (page));
-    nemo_toolbar_bar_free (doomed->data);
-    bars = g_list_delete_link (bars, doomed);
+    gtk_tree_model_get (model, &iter, COL_KIND, &kind, -1);
 
-    toolbar_page_commit (page, bars);
+    /* Having one of its buttons selected is a fair way to mean the toolbar. */
+    if (kind == ROW_ITEM && gtk_tree_model_iter_parent (model, &parent, &iter)) {
+        iter = parent;
+        gtk_tree_model_get (model, &iter, COL_KIND, &kind, -1);
+    }
+
+    if (kind != ROW_BAR) {
+        return;
+    }
+
+    gtk_tree_store_remove (page->store, &iter);
+    toolbar_page_commit (page);
 }
 
 static void
 setup_toolbar_page (GtkBuilder *builder)
 {
     ToolbarPage *page;
-    GtkWidget *box, *controls, *label, *grid, *add, *remove;
-    PangoAttrList *attrs;
-    guint i, n_items;
+    GtkWidget *box, *scrolled, *controls, *add, *remove, *hint;
+    GtkTreeViewColumn *column;
+    GtkCellRenderer *renderer;
 
     box = GTK_WIDGET (gtk_builder_get_object (builder, "toolbar_layout_box"));
 
     page = g_new0 (ToolbarPage, 1);
+    page->store = gtk_tree_store_new (N_TOOLBAR_COLS,
+                                      G_TYPE_INT,
+                                      G_TYPE_STRING,
+                                      G_TYPE_STRING,
+                                      G_TYPE_STRING,
+                                      G_TYPE_BOOLEAN,
+                                      G_TYPE_BOOLEAN);
+
+    page->view = gtk_tree_view_new_with_model (GTK_TREE_MODEL (page->store));
+    gtk_tree_view_set_headers_visible (GTK_TREE_VIEW (page->view), FALSE);
+    gtk_tree_view_set_reorderable (GTK_TREE_VIEW (page->view), TRUE);
+
+    column = gtk_tree_view_column_new ();
+
+    renderer = gtk_cell_renderer_toggle_new ();
+    gtk_tree_view_column_pack_start (column, renderer, FALSE);
+    gtk_tree_view_column_add_attribute (column, renderer, "active", COL_VISIBLE);
+    gtk_tree_view_column_add_attribute (column, renderer, "visible", COL_SHOW_CHECK);
+    g_signal_connect (renderer, "toggled", G_CALLBACK (toolbar_page_visible_toggled), page);
+
+    renderer = gtk_cell_renderer_pixbuf_new ();
+    gtk_tree_view_column_pack_start (column, renderer, FALSE);
+    gtk_tree_view_column_add_attribute (column, renderer, "icon-name", COL_ICON);
+
+    renderer = gtk_cell_renderer_text_new ();
+    gtk_tree_view_column_pack_start (column, renderer, TRUE);
+    gtk_tree_view_column_add_attribute (column, renderer, "text", COL_LABEL);
+
+    gtk_tree_view_append_column (GTK_TREE_VIEW (page->view), column);
+
+    g_signal_connect (page->view, "drag-end", G_CALLBACK (toolbar_page_drag_end), page);
+
+    hint = gtk_label_new (_("Drag buttons to reorder them or to move them between toolbars."));
+    gtk_label_set_xalign (GTK_LABEL (hint), 0);
+    gtk_style_context_add_class (gtk_widget_get_style_context (hint), GTK_STYLE_CLASS_DIM_LABEL);
+
+    scrolled = gtk_scrolled_window_new (NULL, NULL);
+    gtk_scrolled_window_set_policy (GTK_SCROLLED_WINDOW (scrolled),
+                                    GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
+    gtk_scrolled_window_set_shadow_type (GTK_SCROLLED_WINDOW (scrolled), GTK_SHADOW_IN);
+    gtk_widget_set_vexpand (scrolled, TRUE);
+    gtk_container_add (GTK_CONTAINER (scrolled), page->view);
 
     controls = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 6);
-    label = gtk_label_new (_("Toolbar:"));
-    gtk_box_pack_start (GTK_BOX (controls), label, FALSE, FALSE, 0);
-
-    page->combo = gtk_combo_box_text_new ();
-    gtk_box_pack_start (GTK_BOX (controls), page->combo, FALSE, FALSE, 0);
-
-    add = gtk_button_new_with_label (_("Add"));
-    remove = gtk_button_new_with_label (_("Remove"));
+    add = gtk_button_new_with_label (_("Add Toolbar"));
+    remove = gtk_button_new_with_label (_("Remove Toolbar"));
     gtk_box_pack_start (GTK_BOX (controls), add, FALSE, FALSE, 0);
     gtk_box_pack_start (GTK_BOX (controls), remove, FALSE, FALSE, 0);
 
-    gtk_box_pack_start (GTK_BOX (box), controls, FALSE, FALSE, 0);
-
-    attrs = pango_attr_list_new ();
-    pango_attr_list_insert (attrs, pango_attr_weight_new (PANGO_WEIGHT_BOLD));
-
-    label = gtk_label_new (_("Visible Buttons"));
-    gtk_label_set_xalign (GTK_LABEL (label), 0);
-    gtk_label_set_attributes (GTK_LABEL (label), attrs);
-    gtk_widget_set_margin_top (label, 6);
-    gtk_box_pack_start (GTK_BOX (box), label, FALSE, FALSE, 0);
-    pango_attr_list_unref (attrs);
-
-    grid = gtk_grid_new ();
-    gtk_widget_set_margin_left (grid, 40);
-    gtk_container_set_border_width (GTK_CONTAINER (grid), 3);
-    gtk_grid_set_row_spacing (GTK_GRID (grid), 6);
-    gtk_grid_set_column_spacing (GTK_GRID (grid), 6);
-    gtk_grid_set_row_homogeneous (GTK_GRID (grid), TRUE);
-    gtk_grid_set_column_homogeneous (GTK_GRID (grid), TRUE);
-    gtk_box_pack_start (GTK_BOX (box), grid, FALSE, FALSE, 0);
-
-    n_items = nemo_toolbar_layout_get_n_items ();
-
-    for (i = 0; i < n_items; i++) {
-        const NemoToolbarItemInfo *info = nemo_toolbar_layout_get_item (i);
-        GtkWidget *cell, *toggle, *image, *item_label;
-
-        cell = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 6);
-
-        toggle = gtk_toggle_button_new ();
-        image = gtk_image_new_from_icon_name (info->icon_name, GTK_ICON_SIZE_BUTTON);
-        gtk_button_set_image (GTK_BUTTON (toggle), image);
-        g_object_set_data (G_OBJECT (toggle), TOOLBAR_PAGE_ITEM_ID, (gpointer) info->id);
-        g_signal_connect (toggle, "toggled", G_CALLBACK (toolbar_page_item_toggled), page);
-
-        item_label = gtk_label_new (_(info->label));
-
-        gtk_box_pack_start (GTK_BOX (cell), toggle, FALSE, FALSE, 0);
-        gtk_box_pack_start (GTK_BOX (cell), item_label, FALSE, FALSE, 0);
-        gtk_grid_attach (GTK_GRID (grid), cell, i % 2, i / 2, 1, 1);
-
-        page->toggles = g_list_append (page->toggles, toggle);
-    }
-
-    g_signal_connect (page->combo, "changed", G_CALLBACK (toolbar_page_bar_changed), page);
     g_signal_connect (add, "clicked", G_CALLBACK (toolbar_page_add_bar), page);
     g_signal_connect (remove, "clicked", G_CALLBACK (toolbar_page_remove_bar), page);
 
+    gtk_box_pack_start (GTK_BOX (box), hint, FALSE, FALSE, 0);
+    gtk_box_pack_start (GTK_BOX (box), scrolled, TRUE, TRUE, 0);
+    gtk_box_pack_start (GTK_BOX (box), controls, FALSE, FALSE, 0);
+
     g_object_set_data_full (G_OBJECT (box), "nemo-toolbar-page", page, toolbar_page_free);
 
-    toolbar_page_refresh (page);
+    toolbar_page_fill (page);
     gtk_widget_show_all (box);
 }
 
