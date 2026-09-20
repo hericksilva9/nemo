@@ -189,10 +189,13 @@ toolbar_get_window (NemoToolbar *self)
     return GTK_IS_WINDOW (toplevel) ? GTK_WINDOW (toplevel) : NULL;
 }
 
+#define TOOLBAR_ACTION_KEY "nemo-toolbar-action"
+
 static void
-toolbar_action_activated (NemoAction  *action,
-                          NemoToolbar *self)
+toolbar_action_button_clicked (GtkButton   *button,
+                               NemoToolbar *self)
 {
+    NemoAction *action = g_object_get_data (G_OBJECT (button), TOOLBAR_ACTION_KEY);
     GList *selection;
 
     if (self->priv->action_view == NULL) {
@@ -206,6 +209,18 @@ toolbar_action_activated (NemoAction  *action,
                           toolbar_get_window (self));
 
     nemo_file_list_free (selection);
+}
+
+/* An action says "does not apply here" by turning invisible, which suits the
+ * context menu it was designed for. A toolbar button that vanishes shifts
+ * every button beside it, so the state is shown the way the built-in buttons
+ * show it: greyed out, in place. */
+static void
+toolbar_action_notify_visible (NemoAction *action,
+                               GParamSpec *pspec,
+                               GtkWidget  *button)
+{
+    gtk_widget_set_sensitive (button, gtk_action_is_visible (GTK_ACTION (action)));
 }
 
 /* Whether an action applies depends on what is selected, which only the view
@@ -237,8 +252,6 @@ toolbar_sync_action_states (NemoToolbar *self)
     nemo_file_list_free (selection);
 }
 
-/* A user action only applies to some selections, so its button follows the
- * action's own visibility instead of being forced on by gtk_widget_show_all. */
 static GtkWidget *
 toolbar_create_action_button (NemoToolbar *self,
                               const gchar *id)
@@ -254,18 +267,10 @@ toolbar_create_action_button (NemoToolbar *self,
         return NULL;
     }
 
-    g_signal_handlers_disconnect_by_func (action, toolbar_action_activated, self);
-    g_signal_connect (action, "activate", G_CALLBACK (toolbar_action_activated), self);
-
-    button = toolbar_button_for_action (GTK_ACTION (action), FALSE);
-
-    /* The action's label is recomputed for every selection, and syncing it onto
-     * the button would replace the icon with text. Only the action's state and
-     * activation are wanted here, so its appearance is taken over. */
-    gtk_activatable_set_use_action_appearance (GTK_ACTIVATABLE (button), FALSE);
-    gtk_button_set_label (GTK_BUTTON (button), NULL);
-
-    /* A user action carries a GIcon rather than an icon name. */
+    /* Deliberately not bound with gtk_activatable_set_related_action: that
+     * syncs the action's visibility onto the button, and its label over the
+     * icon. Only the state and the activation are wanted. */
+    button = gtk_button_new ();
     icon = gtk_action_get_gicon (GTK_ACTION (action));
 
     if (icon != NULL) {
@@ -273,11 +278,17 @@ toolbar_create_action_button (NemoToolbar *self,
                               gtk_image_new_from_gicon (icon, GTK_ICON_SIZE_BUTTON));
     }
 
-    /* Show the image first: no-show-all stops gtk_widget_show_all descending
-     * into the button, which would otherwise leave it empty. */
-    gtk_widget_show_all (button);
-    gtk_widget_set_no_show_all (button, TRUE);
-    gtk_widget_set_visible (button, gtk_action_is_visible (GTK_ACTION (action)));
+    gtk_widget_set_tooltip_text (button, gtk_action_get_tooltip (GTK_ACTION (action)));
+    gtk_widget_set_can_focus (button, FALSE);
+    gtk_style_context_add_class (gtk_widget_get_style_context (button), GTK_STYLE_CLASS_FLAT);
+
+    g_object_set_data (G_OBJECT (button), TOOLBAR_ACTION_KEY, action);
+    gtk_widget_set_sensitive (button, gtk_action_is_visible (GTK_ACTION (action)));
+
+    g_signal_connect_object (action, "notify::visible",
+                             G_CALLBACK (toolbar_action_notify_visible), button, 0);
+    g_signal_connect (button, "clicked",
+                      G_CALLBACK (toolbar_action_button_clicked), self);
 
     return button;
 }
