@@ -877,6 +877,7 @@ typedef struct {
     GtkWidget         *view;
     NemoActionManager *actions;
     guint              commit_id;
+    gulong             placement_id;
     gboolean           updating;
 } ToolbarPage;
 
@@ -889,6 +890,10 @@ toolbar_page_free (gpointer data)
 
     if (page->commit_id != 0) {
         g_source_remove (page->commit_id);
+    }
+
+    if (page->placement_id != 0) {
+        g_signal_handler_disconnect (nemo_preferences, page->placement_id);
     }
 
     g_clear_object (&page->actions);
@@ -1032,6 +1037,10 @@ toolbar_page_fill (ToolbarPage *page)
     GtkTreeIter top;
     guint i, n_items;
     gint index = 1;
+    gboolean path_bar_in_pane;
+
+    path_bar_in_pane = g_settings_get_boolean (nemo_preferences,
+                                               NEMO_PREFERENCES_PATH_BAR_IN_PANE);
 
     page->updating = TRUE;
 
@@ -1053,6 +1062,12 @@ toolbar_page_fill (ToolbarPage *page)
 
         for (item = bar->items; item != NULL; item = item->next) {
             g_hash_table_add (used, item->data);
+
+            if (path_bar_in_pane &&
+                g_strcmp0 (item->data, NEMO_TOOLBAR_ITEM_PATHBAR) == 0) {
+                continue;
+            }
+
             toolbar_page_append_item (page, &top, item->data);
         }
     }
@@ -1067,6 +1082,10 @@ toolbar_page_fill (ToolbarPage *page)
 
     for (i = 0; i < n_items; i++) {
         const NemoToolbarItemInfo *info = nemo_toolbar_layout_get_item (i);
+
+        if (path_bar_in_pane && g_strcmp0 (info->id, NEMO_TOOLBAR_ITEM_PATHBAR) == 0) {
+            continue;
+        }
 
         if (!g_hash_table_contains (used, info->id)) {
             toolbar_page_append_item (page, &top, info->id);
@@ -1179,7 +1198,7 @@ static void
 setup_toolbar_page (GtkBuilder *builder)
 {
     ToolbarPage *page;
-    GtkWidget *box, *scrolled, *controls, *add, *remove, *hint;
+    GtkWidget *box, *scrolled, *controls, *add, *remove, *hint, *placement;
     GtkTreeViewColumn *column;
     GtkCellRenderer *renderer;
 
@@ -1224,6 +1243,15 @@ setup_toolbar_page (GtkBuilder *builder)
 
     g_signal_connect (page->view, "drag-end", G_CALLBACK (toolbar_page_drag_end), page);
 
+    placement = gtk_check_button_new_with_mnemonic (_("Show the _path bar above the tabs instead of on a toolbar"));
+    g_settings_bind (nemo_preferences, NEMO_PREFERENCES_PATH_BAR_IN_PANE,
+                     placement, "active", G_SETTINGS_BIND_DEFAULT);
+
+    /* Whether it is a toolbar item at all depends on that setting. */
+    page->placement_id = g_signal_connect_swapped (nemo_preferences,
+                                                   "changed::" NEMO_PREFERENCES_PATH_BAR_IN_PANE,
+                                                   G_CALLBACK (toolbar_page_fill), page);
+
     hint = gtk_label_new (_("Drag buttons to reorder them or to move them between toolbars."));
     gtk_label_set_xalign (GTK_LABEL (hint), 0);
     gtk_style_context_add_class (gtk_widget_get_style_context (hint), GTK_STYLE_CLASS_DIM_LABEL);
@@ -1244,6 +1272,7 @@ setup_toolbar_page (GtkBuilder *builder)
     g_signal_connect (add, "clicked", G_CALLBACK (toolbar_page_add_bar), page);
     g_signal_connect (remove, "clicked", G_CALLBACK (toolbar_page_remove_bar), page);
 
+    gtk_box_pack_start (GTK_BOX (box), placement, FALSE, FALSE, 0);
     gtk_box_pack_start (GTK_BOX (box), hint, FALSE, FALSE, 0);
     gtk_box_pack_start (GTK_BOX (box), scrolled, TRUE, TRUE, 0);
     gtk_box_pack_start (GTK_BOX (box), controls, FALSE, FALSE, 0);

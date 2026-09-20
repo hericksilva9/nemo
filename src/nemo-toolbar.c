@@ -69,6 +69,9 @@ struct _NemoToolbarPriv {
 	gboolean show_main_bar;
 	gboolean show_location_entry;
     gboolean show_root_bar;
+
+    /* Set while the path bar hangs outside the toolbar, in the window pane. */
+    gboolean path_bar_external;
 };
 
 enum {
@@ -548,6 +551,12 @@ build_row (NemoToolbar    *self,
         const NemoToolbarItemInfo *info;
 
         if (g_strcmp0 (l->data, NEMO_TOOLBAR_ITEM_PATHBAR) == 0) {
+            /* Its spot is kept in the layout, so it comes back where it was if
+             * the path bar is moved off the pane again. */
+            if (self->priv->path_bar_external) {
+                continue;
+            }
+
             flush_button_box (row, &box, after_pathbar, TRUE);
             add_pathbar_item (self, row);
             after_pathbar = TRUE;
@@ -597,7 +606,7 @@ rebuild_rows (NemoToolbar *self)
      * window pane connected to it survive a layout change. */
     parent = gtk_widget_get_parent (self->priv->pathbar_holder);
 
-    if (parent != NULL) {
+    if (parent != NULL && gtk_widget_is_ancestor (parent, GTK_WIDGET (self))) {
         gtk_container_remove (GTK_CONTAINER (parent), self->priv->pathbar_holder);
     }
 
@@ -829,6 +838,26 @@ GtkWidget *
 nemo_toolbar_get_location_bar (NemoToolbar *self)
 {
 	return self->priv->location_bar;
+}
+
+GtkWidget *
+nemo_toolbar_get_path_bar_holder (NemoToolbar *self)
+{
+	return self->priv->pathbar_holder;
+}
+
+/* Turning this on leaves the holder unparented for the caller to place; turning
+ * it off expects the caller to have taken it out of wherever it had put it. */
+void
+nemo_toolbar_set_path_bar_external (NemoToolbar *self,
+				    gboolean external)
+{
+	if (external == self->priv->path_bar_external) {
+		return;
+	}
+
+	self->priv->path_bar_external = external;
+	rebuild_rows (self);
 }
 
 gboolean

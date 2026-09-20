@@ -944,7 +944,8 @@ toggle_location_entry (NemoWindow     *window,
 
     grab_focus_only = from_accel_or_menu && (pane->last_focus_widget == NULL || !already_has_focus) && current_view;
 
-    if ((temp_toolbar_visible || default_toolbar_visible) && !grab_focus_only) {
+    if ((temp_toolbar_visible || default_toolbar_visible ||
+         nemo_window_pane_path_bar_is_in_pane (pane)) && !grab_focus_only) {
         nemo_toolbar_set_show_location_entry (NEMO_TOOLBAR (pane->tool_bar), !current_view);
 
         action_group = pane->toolbar_action_group;

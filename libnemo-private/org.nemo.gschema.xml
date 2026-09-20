@@ -106,6 +106,11 @@
       <summary>Show the location entry by default</summary>
       <description>If set to true, then Nemo browser windows will show a textual input entry for the location toolbar.</description>
     </key>
+    <key name="path-bar-in-pane" type="b">
+      <default>false</default>
+      <summary>Place the path bar in the pane instead of on the toolbar</summary>
+      <description>If set to true, then the path bar is placed at the top of each pane, above its tabs, and the toolbar no longer offers it as an item. Each pane of a split view then shows its own path, and the path bar stays visible when the toolbar is hidden.</description>
+    </key>
     <!-- The fifteen keys below described the toolbar back when its contents were
          fixed.  The toolbar is now built from ~/.config/nemo/toolbar-layout.json,
          which may hold several bars in any order.  They are read exactly once, to

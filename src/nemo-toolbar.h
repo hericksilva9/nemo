@@ -68,6 +68,13 @@ gboolean  nemo_toolbar_get_show_location_entry (NemoToolbar *self);
 GtkWidget *nemo_toolbar_get_path_bar (NemoToolbar *self);
 GtkWidget *nemo_toolbar_get_location_bar (NemoToolbar *self);
 
+/* The path bar and the location entry live in one reparentable holder, so it can
+ * be taken out of the rows and hung somewhere else -- the window pane does that
+ * when the path bar is set to sit above the tabs. */
+GtkWidget *nemo_toolbar_get_path_bar_holder (NemoToolbar *self);
+void nemo_toolbar_set_path_bar_external (NemoToolbar *self,
+					 gboolean external);
+
 void nemo_toolbar_set_show_main_bar (NemoToolbar *self,
 					 gboolean show_main_bar);
 void nemo_toolbar_set_show_location_entry (NemoToolbar *self,

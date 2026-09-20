@@ -104,5 +104,6 @@ void nemo_window_pane_grab_focus (NemoWindowPane *pane);
 void nemo_window_pane_sync_up_actions (NemoWindowPane *pane);
 /* bars */
 void     nemo_window_pane_ensure_location_bar (NemoWindowPane *pane);
+gboolean nemo_window_pane_path_bar_is_in_pane (NemoWindowPane *pane);
 
 #endif /* NEMO_WINDOW_PANE_H */
