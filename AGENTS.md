@@ -32,8 +32,9 @@ Useful meson options (see `meson_options.txt`): `-Dtracker=true|auto`, `-Dgtk_la
 Running a build in place needs the GSettings schema compiled and visible:
 `GSETTINGS_SCHEMA_DIR=builddir/libnemo-private ./builddir/src/nemo` (the schema source is
 `libnemo-private/org.nemo.gschema.xml`). Nemo is a GApplication singleton — `nemo --quit` before
-relaunching. `nemo --check` runs the in-tree self-check suites (`nemo-self-check-functions.c`,
-`nemo-lib-self-check-functions.c`, `eel-self-checks.c`).
+relaunching. There is no `nemo --check`: `nemo-main-application.c` defines `NEMO_OMIT_SELF_CHECK`
+unconditionally, which compiles out both the option and the suites in
+`src/nemo-self-check-functions.c`. See `test/AGENTS.md` before writing a test.
 
 ### Debugging
 
