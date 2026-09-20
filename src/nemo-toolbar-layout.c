@@ -52,7 +52,7 @@ static const CatalogEntry item_catalog[] = {
     { { NEMO_ACTION_RELOAD,               N_("Refresh"),               "xsi-view-refresh-symbolic",      FALSE }, NEMO_PREFERENCES_SHOW_RELOAD_ICON_TOOLBAR },
     { { NEMO_ACTION_HOME,                 N_("Home"),                  "xsi-go-home-symbolic",           FALSE }, NEMO_PREFERENCES_SHOW_HOME_ICON_TOOLBAR },
     { { NEMO_ACTION_COMPUTER,             N_("Computer"),              "xsi-computer-symbolic",          FALSE }, NEMO_PREFERENCES_SHOW_COMPUTER_ICON_TOOLBAR },
-    { { NEMO_TOOLBAR_ITEM_PATHBAR,        N_("Path Bar"),              "nemo-location-symbolic",         FALSE }, NULL },
+    { { NEMO_TOOLBAR_ITEM_PATHBAR,        N_("Path Bar"),              NULL,                             FALSE }, NULL },
     { { NEMO_ACTION_TOGGLE_LOCATION,      N_("Location entry toggle"), "nemo-location-symbolic",         FALSE }, NEMO_PREFERENCES_SHOW_EDIT_ICON_TOOLBAR },
     { { NEMO_ACTION_OPEN_IN_TERMINAL,     N_("Open in terminal"),      "xsi-utilities-terminal-symbolic", FALSE }, NEMO_PREFERENCES_SHOW_OPEN_IN_TERMINAL_TOOLBAR },
     { { NEMO_ACTION_NEW_FOLDER,           N_("New folder"),            "xsi-folder-new-symbolic",        FALSE }, NEMO_PREFERENCES_SHOW_NEW_FOLDER_ICON_TOOLBAR },
