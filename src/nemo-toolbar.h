@@ -68,6 +68,14 @@ gboolean  nemo_toolbar_get_show_location_entry (NemoToolbar *self);
 GtkWidget *nemo_toolbar_get_path_bar (NemoToolbar *self);
 GtkWidget *nemo_toolbar_get_location_bar (NemoToolbar *self);
 
+/* The path bar and the location entry live in one reparentable holder, which
+ * moves between the rows as the layout changes. */
+GtkWidget *nemo_toolbar_get_path_bar_holder (NemoToolbar *self);
+
+/* The rows of the bars marked as living in the pane. The window pane parents
+ * this box above its tabs; the toolbar fills it like it fills itself. */
+GtkWidget *nemo_toolbar_get_pane_rows (NemoToolbar *self);
+
 void nemo_toolbar_set_show_main_bar (NemoToolbar *self,
 					 gboolean show_main_bar);
 void nemo_toolbar_set_show_location_entry (NemoToolbar *self,

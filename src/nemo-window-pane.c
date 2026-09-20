@@ -62,6 +62,21 @@ static GParamSpec *properties[NUM_PROPERTIES] = { NULL, };
 G_DEFINE_TYPE (NemoWindowPane, nemo_window_pane,
 	       GTK_TYPE_BOX)
 
+/* Whether the path bar is one this pane draws above its own tabs, as opposed to
+ * one in the strip under the menu that only the active pane gets and that the
+ * View menu can hide. Ctrl+L needs to know which, to decide whether it has to
+ * raise a toolbar first. */
+gboolean
+nemo_window_pane_path_bar_is_in_pane (NemoWindowPane *pane)
+{
+	GtkWidget *holder;
+
+	holder = nemo_toolbar_get_path_bar_holder (NEMO_TOOLBAR (pane->tool_bar));
+
+	return gtk_widget_is_ancestor (holder, GTK_WIDGET (pane)) &&
+	       gtk_widget_is_visible (holder);
+}
+
 static gboolean
 widget_is_in_temporary_bars (GtkWidget *widget,
 			     NemoWindowPane *pane)
@@ -909,6 +924,7 @@ nemo_window_pane_constructed (GObject *obj)
 	GtkSizeGroup *header_size_group;
 	NemoWindow *window;
 	GtkActionGroup *action_group;
+	gboolean disable_chrome;
 
 	G_OBJECT_CLASS (nemo_window_pane_parent_class)->constructed (obj);
 
@@ -978,6 +994,17 @@ nemo_window_pane_constructed (GObject *obj)
 				 G_CALLBACK (navigation_bar_cancel_callback), pane, 0);
 	g_signal_connect_object (nemo_location_bar_get_entry (NEMO_LOCATION_BAR (pane->location_bar)), "focus-in-event",
 				 G_CALLBACK (toolbar_focus_in_callback), pane, 0);
+
+	/* Rows the layout puts in the pane are built by the toolbar like any other,
+	 * into a box of their own that lives here, above the tabs. A window with no
+	 * chrome, the desktop included, leaves them where they are, unparented. */
+	g_object_get (window, "disable-chrome", &disable_chrome, NULL);
+
+	if (!disable_chrome && !NEMO_IS_DESKTOP_WINDOW (window)) {
+		gtk_box_pack_start (GTK_BOX (pane),
+				    nemo_toolbar_get_pane_rows (NEMO_TOOLBAR (pane->tool_bar)),
+				    FALSE, FALSE, 0);
+	}
 
 	/* initialize the notebook */
 	pane->notebook = g_object_new (NEMO_TYPE_NOTEBOOK, NULL);
@@ -1310,7 +1337,8 @@ nemo_window_pane_ensure_location_bar (NemoWindowPane *pane)
     gboolean show_location, use_temp_toolbars;
 
     use_temp_toolbars = !g_settings_get_boolean (nemo_window_state,
-                     NEMO_WINDOW_STATE_START_WITH_TOOLBAR);
+                     NEMO_WINDOW_STATE_START_WITH_TOOLBAR) &&
+                        !nemo_window_pane_path_bar_is_in_pane (pane);
     show_location = nemo_toolbar_get_show_location_entry (NEMO_TOOLBAR (pane->tool_bar));
 
     if (use_temp_toolbars) {
