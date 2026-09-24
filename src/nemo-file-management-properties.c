@@ -1076,7 +1076,10 @@ toolbar_page_fill (ToolbarPage *page)
     for (i = 0; i < n_items; i++) {
         const NemoToolbarItemInfo *info = nemo_toolbar_layout_get_item (i);
 
-        if (!g_hash_table_contains (used, info->id)) {
+        /* These can sit on a toolbar more than once, so they stay offered
+         * even after one has already been placed. */
+        if (nemo_toolbar_layout_id_is_repeatable (info->id) ||
+            !g_hash_table_contains (used, info->id)) {
             toolbar_page_append_item (page, &top, info->id);
         }
     }

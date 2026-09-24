@@ -33,6 +33,11 @@ G_DECLARE_FINAL_TYPE (NemoToolbarLayout, nemo_toolbar_layout, NEMO, TOOLBAR_LAYO
  * the catalog; the layout carries them as this prefix plus the action's uuid. */
 #define NEMO_TOOLBAR_ACTION_PREFIX "action:"
 
+/* Unlike every other catalog entry, these two stand for no button and no
+ * action, so nothing stops the same one from being placed more than once. */
+#define NEMO_TOOLBAR_ITEM_SEPARATOR "__separator__"
+#define NEMO_TOOLBAR_ITEM_SPACER    "__spacer__"
+
 typedef struct {
     const gchar *id;
     const gchar *label;
@@ -70,6 +75,7 @@ void                       nemo_toolbar_layout_set_bars    (NemoToolbarLayout *l
                                                             GList             *bars);
 gboolean                   nemo_toolbar_layout_id_is_action (const gchar      *id);
 const gchar               *nemo_toolbar_layout_action_uuid   (const gchar      *id);
+gboolean                   nemo_toolbar_layout_id_is_repeatable (const gchar   *id);
 
 guint                      nemo_toolbar_layout_get_n_items (void);
 const NemoToolbarItemInfo *nemo_toolbar_layout_get_item     (guint              index);

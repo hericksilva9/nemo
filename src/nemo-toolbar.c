@@ -557,6 +557,28 @@ build_row (NemoToolbar    *self,
             continue;
         }
 
+        if (g_strcmp0 (l->data, NEMO_TOOLBAR_ITEM_SEPARATOR) == 0) {
+            GtkToolItem *sep = gtk_separator_tool_item_new ();
+
+            flush_button_box (row, &box, after_pathbar, FALSE);
+            gtk_container_add (GTK_CONTAINER (row), GTK_WIDGET (sep));
+            gtk_widget_show (GTK_WIDGET (sep));
+            after_pathbar = FALSE;
+            continue;
+        }
+
+        if (g_strcmp0 (l->data, NEMO_TOOLBAR_ITEM_SPACER) == 0) {
+            GtkToolItem *spacer = gtk_separator_tool_item_new ();
+
+            flush_button_box (row, &box, after_pathbar, FALSE);
+            gtk_separator_tool_item_set_draw (GTK_SEPARATOR_TOOL_ITEM (spacer), FALSE);
+            gtk_tool_item_set_expand (spacer, TRUE);
+            gtk_container_add (GTK_CONTAINER (row), GTK_WIDGET (spacer));
+            gtk_widget_show (GTK_WIDGET (spacer));
+            after_pathbar = FALSE;
+            continue;
+        }
+
         if (nemo_toolbar_layout_id_is_action (l->data)) {
             GtkWidget *button = toolbar_create_action_button (self, l->data);
 

@@ -108,8 +108,11 @@ test_catalog (void)
         g_hash_table_add (seen, (gpointer) info->id);
 
         /* Every item is a button drawn from its action's icon, except the
-         * path bar, which is a widget and deliberately has none. */
-        if (g_strcmp0 (info->id, NEMO_TOOLBAR_ITEM_PATHBAR) == 0) {
+         * path bar, which is a widget, and the separator and the spacer,
+         * which are drawn with no icon at all. */
+        if (g_strcmp0 (info->id, NEMO_TOOLBAR_ITEM_PATHBAR) == 0 ||
+            g_strcmp0 (info->id, NEMO_TOOLBAR_ITEM_SEPARATOR) == 0 ||
+            g_strcmp0 (info->id, NEMO_TOOLBAR_ITEM_SPACER) == 0) {
             g_assert_null (info->icon_name);
         } else {
             g_assert_nonnull (info->icon_name);
@@ -242,6 +245,34 @@ test_repeated_items_are_dropped (void)
     bars = g_list_append (bars, bar_with (NEMO_ACTION_BACK, NEMO_TOOLBAR_ITEM_PATHBAR,
                                           NEMO_ACTION_COPY, NEMO_ACTION_COPY, NULL));
     bars = g_list_append (bars, bar_with (NEMO_ACTION_CUT, NEMO_ACTION_BACK, NULL));
+
+    nemo_toolbar_layout_set_bars (layout, bars);
+
+    bars = nemo_toolbar_layout_get_bars (layout);
+    g_assert_cmpuint (g_list_length (bars), ==, 2);
+    assert_items (bars, 0, expected_first);
+    assert_items (bars, 1, expected_second);
+}
+
+static void
+test_separators_and_spacers_repeat (void)
+{
+    const gchar * const expected_first[] = {
+        NEMO_TOOLBAR_ITEM_SEPARATOR, NEMO_ACTION_BACK, NEMO_TOOLBAR_ITEM_SEPARATOR,
+        NEMO_TOOLBAR_ITEM_PATHBAR, NULL
+    };
+    const gchar * const expected_second[] = {
+        NEMO_TOOLBAR_ITEM_SPACER, NEMO_ACTION_CUT, NEMO_TOOLBAR_ITEM_SPACER, NULL
+    };
+    NemoToolbarLayout *layout = nemo_toolbar_layout_get_default ();
+    GList *bars = NULL;
+
+    /* Unlike every other button, several of these can sit on the same bar, or
+     * on different bars, without any of them getting dropped as a repeat. */
+    bars = g_list_append (bars, bar_with (NEMO_TOOLBAR_ITEM_SEPARATOR, NEMO_ACTION_BACK,
+                                          NEMO_TOOLBAR_ITEM_SEPARATOR, NEMO_TOOLBAR_ITEM_PATHBAR, NULL));
+    bars = g_list_append (bars, bar_with (NEMO_TOOLBAR_ITEM_SPACER, NEMO_ACTION_CUT,
+                                          NEMO_TOOLBAR_ITEM_SPACER, NULL));
 
     nemo_toolbar_layout_set_bars (layout, bars);
 
@@ -457,6 +488,7 @@ main (int argc, char *argv[])
     g_test_add_func ("/toolbar-layout/view-items-are-opt-in", test_view_items_are_opt_in);
     g_test_add_func ("/toolbar-layout/second-pathbar-is-dropped", test_second_pathbar_is_dropped);
     g_test_add_func ("/toolbar-layout/repeated-items-are-dropped", test_repeated_items_are_dropped);
+    g_test_add_func ("/toolbar-layout/separators-and-spacers-repeat", test_separators_and_spacers_repeat);
     g_test_add_func ("/toolbar-layout/missing-pathbar-is-restored", test_missing_pathbar_is_restored);
     g_test_add_func ("/toolbar-layout/saved-file-round-trips", test_saved_file_round_trips);
     g_test_add_func ("/toolbar-layout/edited-file-is-reloaded", test_edited_file_is_reloaded);

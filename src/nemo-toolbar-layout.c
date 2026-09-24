@@ -76,6 +76,8 @@ static const CatalogEntry item_catalog[] = {
     { { NEMO_ACTION_ICON_VIEW,            N_("Icon view"),             "xsi-view-grid-symbolic",         TRUE  }, NEMO_PREFERENCES_SHOW_ICON_VIEW_ICON_TOOLBAR },
     { { NEMO_ACTION_LIST_VIEW,            N_("List view"),             "xsi-view-list-symbolic",         TRUE  }, NEMO_PREFERENCES_SHOW_LIST_VIEW_ICON_TOOLBAR },
     { { NEMO_ACTION_COMPACT_VIEW,         N_("Compact view"),          "xsi-view-compact-symbolic",      TRUE  }, NEMO_PREFERENCES_SHOW_COMPACT_VIEW_ICON_TOOLBAR },
+    { { NEMO_TOOLBAR_ITEM_SEPARATOR,      N_("Separator"),             NULL,                             FALSE }, NULL },
+    { { NEMO_TOOLBAR_ITEM_SPACER,         N_("Spacer"),                NULL,                             FALSE }, NULL },
 };
 
 struct _NemoToolbarLayout {
@@ -132,6 +134,13 @@ nemo_toolbar_layout_action_uuid (const gchar *id)
     return id + sizeof (NEMO_TOOLBAR_ACTION_PREFIX) - 1;
 }
 
+gboolean
+nemo_toolbar_layout_id_is_repeatable (const gchar *id)
+{
+    return g_strcmp0 (id, NEMO_TOOLBAR_ITEM_SEPARATOR) == 0 ||
+           g_strcmp0 (id, NEMO_TOOLBAR_ITEM_SPACER) == 0;
+}
+
 const NemoToolbarItemInfo *
 nemo_toolbar_layout_lookup_item (const gchar *id)
 {
@@ -159,7 +168,8 @@ build_default_bars (void)
 
         /* The default reproduces the toolbar Nemo used to ship, so items it
          * never had are left for the user to add. */
-        if (entry->info.from_view) {
+        if (entry->info.from_view ||
+            nemo_toolbar_layout_id_is_repeatable (entry->info.id)) {
             continue;
         }
 
@@ -250,6 +260,9 @@ bars_from_json_root (JsonNode *root)
  * bar is a single reparented widget that could not be in two rows anyway --
  * which is also why a layout that has lost it gets it back.
  *
+ * The separator and the spacer stand for neither a button nor a widget, so
+ * this does not apply to them: they are left free to repeat.
+ *
  * Returns TRUE when the layout had to be corrected. */
 static gboolean
 ensure_items_are_unique (GList *bars)
@@ -267,7 +280,9 @@ ensure_items_are_unique (GList *bars)
         while (item != NULL) {
             GList *next = item->next;
 
-            if (g_hash_table_contains (seen, item->data)) {
+            if (nemo_toolbar_layout_id_is_repeatable (item->data)) {
+                /* left alone */
+            } else if (g_hash_table_contains (seen, item->data)) {
                 g_free (item->data);
                 bar->items = g_list_delete_link (bar->items, item);
                 modified = TRUE;
