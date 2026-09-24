@@ -603,6 +603,27 @@ on_menu_selection_done (GtkMenuShell *menushell,
 }
 
 static void
+nemo_window_sync_pane_gap (NemoWindow *window)
+{
+	GtkWidget *paneds[] = { window->details->content_paned,
+				window->details->split_view_hpane };
+	gboolean show_gap;
+	guint i;
+
+	show_gap = g_settings_get_boolean (nemo_preferences, NEMO_PREFERENCES_SHOW_PANE_GAP);
+
+	for (i = 0; i < G_N_ELEMENTS (paneds); i++) {
+		GtkStyleContext *context = gtk_widget_get_style_context (paneds[i]);
+
+		if (show_gap) {
+			gtk_style_context_add_class (context, "nemo-pane-gap");
+		} else {
+			gtk_style_context_remove_class (context, "nemo-pane-gap");
+		}
+	}
+}
+
+static void
 nemo_window_constructed (GObject *self)
 {
 	NemoWindow *window;
@@ -701,6 +722,12 @@ nemo_window_constructed (GObject *self)
 	gtk_box_pack_start (GTK_BOX (vbox), hpaned, TRUE, TRUE, 0);
 	gtk_widget_show (hpaned);
 	window->details->split_view_hpane = hpaned;
+
+	nemo_window_sync_pane_gap (window);
+	g_signal_connect_swapped (nemo_preferences,
+				  "changed::" NEMO_PREFERENCES_SHOW_PANE_GAP,
+				  G_CALLBACK (nemo_window_sync_pane_gap),
+				  window);
 
 	pane = nemo_window_pane_new (window);
 	window->details->panes = g_list_prepend (window->details->panes, pane);
@@ -866,6 +893,9 @@ nemo_window_finalize (GObject *object)
 
     g_signal_handlers_disconnect_by_func (nemo_preferences,
                                           nemo_window_sync_thumbnail_action,
+                                          window);
+    g_signal_handlers_disconnect_by_func (nemo_preferences,
+                                          nemo_window_sync_pane_gap,
                                           window);
 
     clear_menu_hide_delay (window);

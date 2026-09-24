@@ -15,6 +15,18 @@ NemoDesktopWindow GtkPaned {
     background-color: transparent;
 }
 
+/* Gap between sidebar and panes, toggled by org.nemo.preferences show-pane-gap.
+ * margin: 0 undoes the negative margin themes use to widen the grab area. Shaded because
+ * many themes use the same color for the window and the views. */
+.nemo-window paned.nemo-pane-gap.horizontal > separator,
+.nemo-window paned.nemo-pane-gap.horizontal > separator.wide {
+    min-width: 6px;
+    margin: 0;
+    padding: 0;
+    background-image: none;
+    background-color: shade(@theme_bg_color, 0.8);
+}
+
 .nemo-canvas-item {
     border-radius: 3px;
 }
