@@ -34,6 +34,8 @@ void            nemo_window_load_toolbar_bar_menus (NemoWindow *window);
 void            toolbar_set_view_button     (guint action_id,      NemoWindow *window);
 void            toolbar_set_show_thumbnails_button (gboolean value, NemoWindowPane *pane);
 void            menu_set_show_thumbnails_action (gboolean value, NemoWindow *window);
+void            toolbar_set_show_hidden_files_button (gboolean value, NemoWindowPane *pane);
+void            menu_set_show_hidden_files_action (gboolean value, NemoWindow *window);
 void            toolbar_set_create_folder_button (gboolean value, NemoWindowPane *pane);
 void            menu_set_view_selection (guint       action_id,
                                          NemoWindow *window);
