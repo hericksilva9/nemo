@@ -281,17 +281,20 @@ action_show_hidden_files_callback (GtkAction *action,
 				   gpointer callback_data)
 {
 	NemoWindow *window;
+	NemoWindowPane *pane;
 	NemoWindowShowHiddenFilesMode mode;
+	gboolean value;
 
 	window = NEMO_WINDOW (callback_data);
+	pane = nemo_window_get_active_pane (window);
 
-	if (gtk_toggle_action_get_active (GTK_TOGGLE_ACTION (action))) {
-		mode = NEMO_WINDOW_SHOW_HIDDEN_FILES_ENABLE;
-	} else {
-		mode = NEMO_WINDOW_SHOW_HIDDEN_FILES_DISABLE;
-	}
+	value = gtk_toggle_action_get_active (GTK_TOGGLE_ACTION (action));
+	mode = value ? NEMO_WINDOW_SHOW_HIDDEN_FILES_ENABLE : NEMO_WINDOW_SHOW_HIDDEN_FILES_DISABLE;
 
 	nemo_window_set_hidden_files_mode (window, mode);
+
+	toolbar_set_show_hidden_files_button (value, pane);
+	menu_set_show_hidden_files_action (value, window);
 }
 
 static void
@@ -1205,6 +1208,59 @@ menu_set_show_thumbnails_action (gboolean value, NemoWindow *window)
 }
 
 void
+toolbar_set_show_hidden_files_button (gboolean value, NemoWindowPane *pane)
+{
+    GtkAction *action;
+    GtkActionGroup *action_group;
+
+    action_group = nemo_window_pane_get_toolbar_action_group (pane);
+
+    action = gtk_action_group_get_action (action_group,
+                                          NEMO_ACTION_SHOW_HIDDEN_FILES);
+
+    g_signal_handlers_block_matched (action,
+                         G_SIGNAL_MATCH_FUNC,
+                         0, 0,
+                         NULL,
+                         action_show_hidden_files_callback,
+                         NULL);
+
+    gtk_toggle_action_set_active (GTK_TOGGLE_ACTION (action), value);
+
+    g_signal_handlers_unblock_matched (action,
+                           G_SIGNAL_MATCH_FUNC,
+                           0, 0,
+                           NULL,
+                           action_show_hidden_files_callback,
+                           NULL);
+}
+
+void
+menu_set_show_hidden_files_action (gboolean value, NemoWindow *window)
+{
+    GtkAction *action;
+
+    action = gtk_action_group_get_action (window->details->main_action_group,
+                                          NEMO_ACTION_SHOW_HIDDEN_FILES);
+
+    g_signal_handlers_block_matched (action,
+                         G_SIGNAL_MATCH_FUNC,
+                         0, 0,
+                         NULL,
+                         action_show_hidden_files_callback,
+                         NULL);
+
+    gtk_toggle_action_set_active (GTK_TOGGLE_ACTION (action), value);
+
+    g_signal_handlers_unblock_matched (action,
+                           G_SIGNAL_MATCH_FUNC,
+                           0, 0,
+                           NULL,
+                           action_show_hidden_files_callback,
+                           NULL);
+}
+
+void
 toolbar_set_create_folder_button (gboolean value, NemoWindowPane *pane)
 {
     GtkActionGroup *action_group;
@@ -1807,6 +1863,20 @@ nemo_window_create_toolbar_action_group (NemoWindow *window)
 
    	g_object_unref (action);
 
+    action = GTK_ACTION (gtk_toggle_action_new (NEMO_ACTION_SHOW_HIDDEN_FILES,
+                         _("Show Hidden Files"),
+                         _("Toggle the display of hidden files in the current window"),
+                         NULL));
+    gtk_toggle_action_set_active (GTK_TOGGLE_ACTION (action),
+                                  nemo_window_get_hidden_files_mode (window) == NEMO_WINDOW_SHOW_HIDDEN_FILES_ENABLE);
+   	g_signal_connect (action, "activate",
+                      G_CALLBACK (action_show_hidden_files_callback),
+                      window);
+   	gtk_action_group_add_action (action_group, action);
+    gtk_action_set_icon_name (GTK_ACTION (action), "xsi-view-reveal-symbolic");
+
+   	g_object_unref (action);
+
     action = GTK_ACTION (gtk_toggle_action_new (NEMO_ACTION_SHOW_HIDE_EXTRA_PANE,
                          NULL,
                          _("Open an extra folder view side-by-side"),
@@ -1963,6 +2033,7 @@ nemo_window_initialize_menus (NemoWindow *window)
   	g_object_set (action, "short_label", _("_Location"), NULL);
 
 	action = gtk_action_group_get_action (action_group, NEMO_ACTION_SHOW_HIDDEN_FILES);
+    gtk_action_set_icon_name (action, "xsi-view-reveal-symbolic");
 
     if (NEMO_IS_DESKTOP_WINDOW (window)) {
         gtk_action_set_visible (action, FALSE);
