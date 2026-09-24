@@ -1963,6 +1963,7 @@ nemo_window_initialize_menus (NemoWindow *window)
   	g_object_set (action, "short_label", _("_Location"), NULL);
 
 	action = gtk_action_group_get_action (action_group, NEMO_ACTION_SHOW_HIDDEN_FILES);
+    gtk_action_set_icon_name (action, "xsi-view-reveal-symbolic");
 
     if (NEMO_IS_DESKTOP_WINDOW (window)) {
         gtk_action_set_visible (action, FALSE);

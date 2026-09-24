@@ -71,6 +71,7 @@ static const CatalogEntry item_catalog[] = {
     { { NEMO_ACTION_PROPERTIES,           N_("Properties"),            "xsi-document-properties-symbolic", FALSE, TRUE }, NULL },
     { { NEMO_ACTION_SEARCH,               N_("Search"),                "xsi-edit-find-symbolic",         TRUE  }, NEMO_PREFERENCES_SHOW_SEARCH_ICON_TOOLBAR },
     { { NEMO_ACTION_SHOW_THUMBNAILS,      N_("Show Thumbnails"),       "xsi-preview-symbolic",           TRUE  }, NEMO_PREFERENCES_SHOW_SHOW_THUMBNAILS_TOOLBAR },
+    { { NEMO_ACTION_SHOW_HIDDEN_FILES,    N_("Show Hidden Files"),     "xsi-view-reveal-symbolic",       TRUE  }, NEMO_PREFERENCES_SHOW_HIDDEN_FILES_TOOLBAR },
     { { NEMO_ACTION_SHOW_HIDE_EXTRA_PANE, N_("Extra Pane"),            "xsi-view-dual-symbolic",         TRUE  }, NEMO_PREFERENCES_SHOW_TOGGLE_EXTRA_PANE_TOOLBAR },
     { { NEMO_ACTION_ICON_VIEW,            N_("Icon view"),             "xsi-view-grid-symbolic",         TRUE  }, NEMO_PREFERENCES_SHOW_ICON_VIEW_ICON_TOOLBAR },
     { { NEMO_ACTION_LIST_VIEW,            N_("List view"),             "xsi-view-list-symbolic",         TRUE  }, NEMO_PREFERENCES_SHOW_LIST_VIEW_ICON_TOOLBAR },
