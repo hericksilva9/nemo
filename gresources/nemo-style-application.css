@@ -16,15 +16,17 @@ NemoDesktopWindow GtkPaned {
 }
 
 /* Gap between sidebar and panes, toggled by org.nemo.preferences show-pane-gap.
- * margin: 0 undoes the negative margin themes use to widen the grab area. Shaded because
- * many themes use the same color for the window and the views. */
+ * margin: 0 undoes the negative margin themes use to widen the grab area. The edge lines
+ * come from the text color so they read lighter on dark themes and darker on light ones. */
 .nemo-window paned.nemo-pane-gap.horizontal > separator,
 .nemo-window paned.nemo-pane-gap.horizontal > separator.wide {
-    min-width: 6px;
+    min-width: 8px;
     margin: 0;
     padding: 0;
+    box-shadow: inset 1px 0 alpha(@theme_fg_color, 0.15),
+                inset -1px 0 alpha(@theme_fg_color, 0.15);
     background-image: none;
-    background-color: shade(@theme_bg_color, 0.8);
+    background-color: shade(@theme_bg_color, 0.9);
 }
 
 .nemo-canvas-item {
