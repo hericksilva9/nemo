@@ -229,6 +229,10 @@ bars_from_json_root (JsonNode *root)
             bar->in_pane = json_object_get_boolean_member (bar_object, "in_pane");
         }
 
+        if (json_object_has_member (bar_object, "show_labels")) {
+            bar->show_labels = json_object_get_boolean_member (bar_object, "show_labels");
+        }
+
         item_array = json_object_has_member (bar_object, "items") ?
                      json_object_get_array_member (bar_object, "items") : NULL;
         n_items = item_array != NULL ? json_array_get_length (item_array) : 0;
@@ -338,6 +342,9 @@ save_bars (GList *bars)
 
         json_builder_set_member_name (builder, "in_pane");
         json_builder_add_boolean_value (builder, bar->in_pane);
+
+        json_builder_set_member_name (builder, "show_labels");
+        json_builder_add_boolean_value (builder, bar->show_labels);
 
         json_builder_set_member_name (builder, "items");
         json_builder_begin_array (builder);
@@ -470,6 +477,7 @@ nemo_toolbar_layout_copy_bars (NemoToolbarLayout *layout)
         bar = nemo_toolbar_bar_new ();
         bar->visible = source->visible;
         bar->in_pane = source->in_pane;
+        bar->show_labels = source->show_labels;
 
         for (item = source->items; item != NULL; item = item->next) {
             bar->items = g_list_prepend (bar->items, g_strdup (item->data));

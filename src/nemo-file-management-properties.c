@@ -870,6 +870,7 @@ enum {
     COL_VISIBLE,
     COL_SHOW_CHECK,
     COL_IN_PANE,
+    COL_SHOW_LABELS,
     N_TOOLBAR_COLS
 };
 
@@ -935,13 +936,14 @@ toolbar_page_harvest (ToolbarPage *page)
          ok = gtk_tree_model_iter_next (model, &top)) {
         NemoToolbarBar *bar;
         GtkTreeIter child;
-        gboolean visible, in_pane;
+        gboolean visible, in_pane, show_labels;
         gint kind;
 
         gtk_tree_model_get (model, &top,
                             COL_KIND, &kind,
                             COL_VISIBLE, &visible,
                             COL_IN_PANE, &in_pane,
+                            COL_SHOW_LABELS, &show_labels,
                             -1);
 
         if (kind != ROW_BAR) {
@@ -951,6 +953,7 @@ toolbar_page_harvest (ToolbarPage *page)
         bar = nemo_toolbar_bar_new ();
         bar->visible = visible;
         bar->in_pane = in_pane;
+        bar->show_labels = show_labels;
 
         if (gtk_tree_model_iter_children (model, &child, &top)) {
             toolbar_page_collect_items (model, &child, bar);
@@ -1057,6 +1060,7 @@ toolbar_page_fill (ToolbarPage *page)
                             COL_VISIBLE, bar->visible,
                             COL_SHOW_CHECK, TRUE,
                             COL_IN_PANE, bar->in_pane,
+                            COL_SHOW_LABELS, bar->show_labels,
                             -1);
 
         for (item = bar->items; item != NULL; item = item->next) {
@@ -1135,6 +1139,24 @@ toolbar_page_visible_toggled (GtkCellRendererToggle *renderer,
 
     gtk_tree_model_get (GTK_TREE_MODEL (page->store), &iter, COL_VISIBLE, &visible, -1);
     gtk_tree_store_set (page->store, &iter, COL_VISIBLE, !visible, -1);
+
+    toolbar_page_commit (page);
+}
+
+static void
+toolbar_page_labels_toggled (GtkCellRendererToggle *renderer,
+                             gchar                 *path,
+                             ToolbarPage           *page)
+{
+    GtkTreeIter iter;
+    gboolean show_labels;
+
+    if (!gtk_tree_model_get_iter_from_string (GTK_TREE_MODEL (page->store), &iter, path)) {
+        return;
+    }
+
+    gtk_tree_model_get (GTK_TREE_MODEL (page->store), &iter, COL_SHOW_LABELS, &show_labels, -1);
+    gtk_tree_store_set (page->store, &iter, COL_SHOW_LABELS, !show_labels, -1);
 
     toolbar_page_commit (page);
 }
@@ -1225,6 +1247,7 @@ setup_toolbar_page (GtkBuilder *builder)
                                       G_TYPE_STRING,
                                       G_TYPE_BOOLEAN,
                                       G_TYPE_BOOLEAN,
+                                      G_TYPE_BOOLEAN,
                                       G_TYPE_BOOLEAN);
 
     page->view = gtk_tree_view_new_with_model (GTK_TREE_MODEL (page->store));
@@ -1246,6 +1269,22 @@ setup_toolbar_page (GtkBuilder *builder)
     renderer = gtk_cell_renderer_text_new ();
     gtk_tree_view_column_pack_start (column, renderer, TRUE);
     gtk_tree_view_column_add_attribute (column, renderer, "text", COL_LABEL);
+
+    gtk_tree_view_append_column (GTK_TREE_VIEW (page->view), column);
+
+    /* Only the toolbar rows get this one; it applies to every button on them. */
+    column = gtk_tree_view_column_new ();
+
+    renderer = gtk_cell_renderer_toggle_new ();
+    gtk_tree_view_column_pack_start (column, renderer, FALSE);
+    gtk_tree_view_column_add_attribute (column, renderer, "active", COL_SHOW_LABELS);
+    gtk_tree_view_column_add_attribute (column, renderer, "visible", COL_SHOW_CHECK);
+    g_signal_connect (renderer, "toggled", G_CALLBACK (toolbar_page_labels_toggled), page);
+
+    renderer = gtk_cell_renderer_text_new ();
+    g_object_set (renderer, "text", _("Show labels"), NULL);
+    gtk_tree_view_column_pack_start (column, renderer, FALSE);
+    gtk_tree_view_column_add_attribute (column, renderer, "visible", COL_SHOW_CHECK);
 
     gtk_tree_view_append_column (GTK_TREE_VIEW (page->view), column);
 

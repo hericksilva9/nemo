@@ -61,6 +61,9 @@ typedef struct {
      * under the menu.  A split view then gets one of these bars per pane. */
     gboolean  in_pane;
 
+    /* Each button carries its name beside its icon, not just in its tooltip. */
+    gboolean  show_labels;
+
     GList    *items;
 } NemoToolbarBar;
 
