@@ -188,6 +188,7 @@ enum {
 	REMOVE_FILE,
 	ZOOM_LEVEL_CHANGED,
 	SELECTION_CHANGED,
+	SELECTION_DISPLAYED,
 	TRASH,
 	DELETE,
     ACTIVATE_FILTER,
@@ -3897,6 +3898,7 @@ display_selection_info_idle_callback (gpointer data)
 
 	view->details->display_selection_idle_id = 0;
 	nemo_view_display_selection_info (view);
+	g_signal_emit (view, signals[SELECTION_DISPLAYED], 0);
 	if (view->details->send_selection_change_to_shell) {
 		nemo_view_send_selection_change (view);
 	}
@@ -11666,6 +11668,16 @@ nemo_view_class_init (NemoViewClass *klass)
 			      G_TYPE_NONE, 0);
 	signals[SELECTION_CHANGED] =
 		g_signal_new ("selection-changed",
+			      G_TYPE_FROM_CLASS (klass),
+			      G_SIGNAL_RUN_LAST,
+			      0,
+			      NULL, NULL,
+			      g_cclosure_marshal_VOID__VOID,
+			      G_TYPE_NONE, 0);
+	/* Unlike selection-changed, also covers selections Nemo makes itself,
+	 * such as reselecting the folder just left when going up. */
+	signals[SELECTION_DISPLAYED] =
+		g_signal_new ("selection-displayed",
 			      G_TYPE_FROM_CLASS (klass),
 			      G_SIGNAL_RUN_LAST,
 			      0,
