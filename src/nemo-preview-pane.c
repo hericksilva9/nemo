@@ -20,6 +20,8 @@
 
 #include "nemo-preview-pane.h"
 
+#include <string.h>
+
 #include <glib/gi18n.h>
 #include <gtksourceview/gtksource.h>
 #include <xreader-document.h>
@@ -370,6 +372,8 @@ text_loaded_cb (GObject      *source,
     NemoPreviewPane *self = user_data;
     GBytes *bytes;
     const gchar *data, *end;
+    gchar *converted = NULL;
+    GtkTextBuffer *buffer;
     gsize length;
 
     bytes = g_input_stream_read_bytes_finish (G_INPUT_STREAM (source), res, NULL);
@@ -380,18 +384,31 @@ text_loaded_cb (GObject      *source,
 
     data = g_bytes_get_data (bytes, &length);
 
-    /* Only a character cut in half at the read limit may be invalid; anything
-     * else means the file isn't really text, so the icon stays. */
-    if (g_utf8_validate (data, length, &end) || (data + length) - end < 4) {
-        GtkTextBuffer *buffer;
+    /* A character cut in half at the read limit is the only invalid UTF-8
+     * allowed through.  Other than that, text files older than UTF-8 (bank
+     * statements, say) are nearly always Windows-1252, so those are read as
+     * that; a NUL byte means it isn't text at all, and the icon stays. */
+    if (!g_utf8_validate (data, length, &end) && (data + length) - end >= 4) {
+        if (memchr (data, '\0', length) == NULL) {
+            converted = g_convert (data, length, "UTF-8", "WINDOWS-1252", NULL, NULL, NULL);
+        }
 
-        buffer = gtk_text_view_get_buffer (GTK_TEXT_VIEW (self->text_view));
-        gtk_source_buffer_set_language (GTK_SOURCE_BUFFER (buffer), guess_language (self->file));
-        gtk_text_buffer_set_text (buffer, data, end - data);
-        gtk_stack_set_visible_child_name (GTK_STACK (self->stack), "text");
-        self->showing_icon = FALSE;
+        if (converted == NULL) {
+            g_bytes_unref (bytes);
+            return;
+        }
+
+        data = converted;
+        end = converted + strlen (converted);
     }
 
+    buffer = gtk_text_view_get_buffer (GTK_TEXT_VIEW (self->text_view));
+    gtk_source_buffer_set_language (GTK_SOURCE_BUFFER (buffer), guess_language (self->file));
+    gtk_text_buffer_set_text (buffer, data, end - data);
+    gtk_stack_set_visible_child_name (GTK_STACK (self->stack), "text");
+    self->showing_icon = FALSE;
+
+    g_free (converted);
     g_bytes_unref (bytes);
 }
 
