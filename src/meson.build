@@ -176,3 +176,12 @@ nemo_extensions_list = executable('nemo-extensions-list',
   install: true,
   install_dir: libExecPath,
 )
+
+nemo_office_preview = executable('nemo-office-preview',
+  [ 'nemo-office-preview.c' ],
+  include_directories: [ rootInclude, ],
+  c_args: nemo_definitions,
+  dependencies: [ glib, dl ],
+  install: true,
+  install_dir: libExecPath,
+)

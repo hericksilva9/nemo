@@ -95,6 +95,10 @@ xreader_view = dependency('xreader-view-1.5')
 gtksource = dependency('gtksourceview-4')
 gstreamer = dependency('gstreamer-1.0')
 libarchive = dependency('libarchive')
+# Office documents go through LibreOffice at runtime; only its headers are
+# needed here.
+cc.has_header('LibreOfficeKit/LibreOfficeKitInit.h', required: true)
+dl = cc.find_library('dl', required: false)
 
 # Facultative dependencies
 
