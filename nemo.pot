@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-26 15:17-0300\n"
+"POT-Creation-Date: 2026-09-26 16:39-0300\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -326,13 +326,13 @@ msgstr ""
 msgid "Name"
 msgstr ""
 
-#: src/nemo-desktop-icon-grid-view.c:1083 src/nemo-preview-pane.c:1027
+#: src/nemo-desktop-icon-grid-view.c:1083 src/nemo-preview-pane.c:1671
 #: libnemo-private/nemo-column-utilities.c:51
 #: gresources/nemo-desktop-overlay.glade:121
 msgid "Size"
 msgstr ""
 
-#: src/nemo-desktop-icon-grid-view.c:1087 src/nemo-preview-pane.c:1026
+#: src/nemo-desktop-icon-grid-view.c:1087 src/nemo-preview-pane.c:1670
 #: libnemo-private/nemo-column-utilities.c:59
 #: gresources/nemo-desktop-overlay.glade:126
 msgid "Type"
@@ -1541,30 +1541,48 @@ msgstr ""
 msgid "Stop"
 msgstr ""
 
-#: src/nemo-preview-pane.c:834 src/nemo-preview-pane.c:1036
+#: src/nemo-preview-pane.c:1273
+#, c-format
+msgid "More than %u file, %s uncompressed"
+msgid_plural "More than %u files, %s uncompressed"
+msgstr[0] ""
+msgstr[1] ""
+
+#: src/nemo-preview-pane.c:1276
+#, c-format
+msgid "%u file, %s uncompressed"
+msgid_plural "%u files, %s uncompressed"
+msgstr[0] ""
+msgstr[1] ""
+
+#: src/nemo-preview-pane.c:1445 src/nemo-preview-pane.c:1682
 msgid "No file selected"
 msgstr ""
 
-#: src/nemo-preview-pane.c:838
+#: src/nemo-preview-pane.c:1449
 #, c-format
 msgid "%u item selected"
 msgid_plural "%u items selected"
 msgstr[0] ""
 msgstr[1] ""
 
-#: src/nemo-preview-pane.c:983
+#: src/nemo-preview-pane.c:1627
 msgid "Play or pause"
 msgstr ""
 
-#: src/nemo-preview-pane.c:1028
+#: src/nemo-preview-pane.c:1672
 msgid "Dimensions"
 msgstr ""
 
-#: src/nemo-preview-pane.c:1030
+#: src/nemo-preview-pane.c:1674
 msgid "Pages"
 msgstr ""
 
-#: src/nemo-preview-pane.c:1031
+#: src/nemo-preview-pane.c:1675
+msgid "Contents"
+msgstr ""
+
+#: src/nemo-preview-pane.c:1677
 msgid "Modified"
 msgstr ""
 
@@ -3138,13 +3156,13 @@ msgstr ""
 msgid "Go to the location specified by this bookmark"
 msgstr ""
 
-#: src/nemo-window.c:1534
+#: src/nemo-window.c:1535
 #, c-format
 msgid "%s - File Browser"
 msgstr ""
 
 #. Set initial window title
-#: src/nemo-window.c:2151 src/nemo-window-menus.c:337
+#: src/nemo-window.c:2152 src/nemo-window-menus.c:337
 msgid "Nemo"
 msgstr ""
 
