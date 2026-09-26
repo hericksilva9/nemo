@@ -83,3 +83,15 @@ NemoDesktopWindow GtkPaned {
     color: @theme_selected_fg_color;
     text-shadow: none;
 }
+
+/* Toolbar split buttons: the arrow is narrow and sits flush against its main button. */
+.nemo-split-main {
+    margin-right: 0;
+}
+
+.nemo-split-arrow {
+    min-width: 0;
+    margin-left: 0;
+    padding-left: 3px;
+    padding-right: 3px;
+}

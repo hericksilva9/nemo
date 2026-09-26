@@ -499,6 +499,21 @@ toolbar_setup_view_button (NemoToolbar               *self,
     toolbar_bind_view_button (self, button);
 }
 
+/* Hovering either half of a split button lights up both, so they read as one. */
+static gboolean
+toolbar_split_crossing (GtkWidget        *button,
+                        GdkEventCrossing *event,
+                        GtkWidget        *sibling)
+{
+    if (event->type == GDK_ENTER_NOTIFY) {
+        gtk_widget_set_state_flags (sibling, GTK_STATE_FLAG_PRELIGHT, FALSE);
+    } else {
+        gtk_widget_unset_state_flags (sibling, GTK_STATE_FLAG_PRELIGHT);
+    }
+
+    return GDK_EVENT_PROPAGATE;
+}
+
 static GtkWidget *
 toolbar_create_split_button (NemoToolbar               *self,
                              const NemoToolbarItemInfo *info,
@@ -525,6 +540,9 @@ toolbar_create_split_button (NemoToolbar               *self,
     arrow_button = gtk_button_new ();
     gtk_container_add (GTK_CONTAINER (arrow_button), arrow);
 
+    gtk_style_context_add_class (gtk_widget_get_style_context (main_button), "nemo-split-main");
+    gtk_style_context_add_class (gtk_widget_get_style_context (arrow_button), "nemo-split-arrow");
+
     box = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 0);
     gtk_style_context_add_class (gtk_widget_get_style_context (box), GTK_STYLE_CLASS_LINKED);
     gtk_container_add (GTK_CONTAINER (box), main_button);
@@ -538,6 +556,11 @@ toolbar_create_split_button (NemoToolbar               *self,
 
     g_signal_connect (main_button, "clicked", G_CALLBACK (toolbar_view_button_clicked), self);
     g_signal_connect (arrow_button, "clicked", G_CALLBACK (toolbar_view_menu_button_clicked), self);
+
+    g_signal_connect (main_button, "enter-notify-event", G_CALLBACK (toolbar_split_crossing), arrow_button);
+    g_signal_connect (main_button, "leave-notify-event", G_CALLBACK (toolbar_split_crossing), arrow_button);
+    g_signal_connect (arrow_button, "enter-notify-event", G_CALLBACK (toolbar_split_crossing), main_button);
+    g_signal_connect (arrow_button, "leave-notify-event", G_CALLBACK (toolbar_split_crossing), main_button);
 
     return box;
 }
