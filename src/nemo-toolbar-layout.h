@@ -52,6 +52,10 @@ typedef struct {
     /* Set on the ones that stand for a submenu rather than a command: the
      * button drops down the menu the view's UI manager builds at this path. */
     const gchar *menu_path;
+
+    /* Makes a menu item a split button: the main part runs this action from
+     * the view's group, and only the arrow beside it drops down the menu. */
+    const gchar *primary_action;
 } NemoToolbarItemInfo;
 
 typedef struct {

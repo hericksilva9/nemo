@@ -62,8 +62,8 @@ static const CatalogEntry item_catalog[] = {
     /* The menu items these come from have no icon of their own. */
     { { NEMO_ACTION_RENAME,               N_("Rename"),                "xsi-document-edit-symbolic",     FALSE, TRUE }, NULL },
     { { NEMO_ACTION_DUPLICATE,            N_("Duplicate"),             "xsi-drive-multidisk-symbolic",   FALSE, TRUE }, NULL },
-    { { NEMO_ACTION_COPY_TO_MENU,         N_("Copy to"),               "xsi-send-to-symbolic",           FALSE, TRUE, "/toolbar-copy-to" }, NULL },
-    { { NEMO_ACTION_MOVE_TO_MENU,         N_("Move to"),               "xsi-move-symbolic",              FALSE, TRUE, "/toolbar-move-to" }, NULL },
+    { { NEMO_ACTION_COPY_TO_MENU,         N_("Copy to"),               "xsi-send-to-symbolic",           FALSE, TRUE, "/toolbar-copy-to", NEMO_ACTION_COPY_TO_NEXT_PANE }, NULL },
+    { { NEMO_ACTION_MOVE_TO_MENU,         N_("Move to"),               "xsi-move-symbolic",              FALSE, TRUE, "/toolbar-move-to", NEMO_ACTION_MOVE_TO_NEXT_PANE }, NULL },
     /* Follows its action's icon: it becomes Delete on what is already in the
      * trash. */
     { { NEMO_ACTION_TRASH,                N_("Move to Trash"),         "xsi-user-trash-symbolic",        FALSE, TRUE }, NULL },
