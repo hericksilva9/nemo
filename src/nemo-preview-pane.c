@@ -21,6 +21,9 @@
 #include "nemo-preview-pane.h"
 
 #include <glib/gi18n.h>
+#include <gtksourceview/gtksource.h>
+#include <xreader-document.h>
+#include <xreader-view.h>
 #include <libnemo-private/nemo-file.h>
 #include <libnemo-private/nemo-file-attributes.h>
 
@@ -44,6 +47,9 @@ struct _NemoPreviewPane {
     GtkWidget *modified_label;
     GtkWidget *dimensions_title;
     GtkWidget *dimensions_label;
+    GtkWidget *pages_title;
+    GtkWidget *pages_label;
+    GtkWidget *document_view;
 
     NemoView *view;
     NemoFile *file;
@@ -52,9 +58,42 @@ struct _NemoPreviewPane {
     gboolean showing_icon;
     gint load_width;
     gint load_height;
+    EvJob *document_job;
 };
 
 G_DEFINE_TYPE (NemoPreviewPane, nemo_preview_pane, GTK_TYPE_BOX)
+
+/* Mime types the document backends can open, filled on first use. */
+static GHashTable *document_types = NULL;
+
+static gboolean
+is_document_type (const gchar *mime_type)
+{
+    if (document_types == NULL) {
+        GList *infos, *l;
+
+        document_types = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, NULL);
+        infos = ev_backends_manager_get_all_types_info ();
+
+        for (l = infos; l != NULL; l = l->next) {
+            EvTypeInfo *info = l->data;
+            gint i;
+
+            for (i = 0; info->mime_types[i] != NULL; i++) {
+                g_hash_table_add (document_types, g_strdup (info->mime_types[i]));
+            }
+        }
+
+        /* The infos belong to the backends manager. */
+        g_list_free (infos);
+    }
+
+    /* Images already have their own preview, and epub needs a web view the
+     * backend brings in on its own. */
+    return !g_str_has_prefix (mime_type, "image/") &&
+           g_strcmp0 (mime_type, "application/epub+zip") != 0 &&
+           g_hash_table_contains (document_types, mime_type);
+}
 
 static void
 get_preview_area (NemoPreviewPane *self,
@@ -256,6 +295,73 @@ start_image (NemoPreviewPane *self)
     g_object_unref (location);
 }
 
+static GtkSourceLanguage *
+guess_language (NemoFile *file)
+{
+    GtkSourceLanguage *language;
+    gchar *name, *mime_type;
+
+    name = nemo_file_get_display_name (file);
+    mime_type = nemo_file_get_mime_type (file);
+
+    language = gtk_source_language_manager_guess_language (gtk_source_language_manager_get_default (),
+                                                           name, mime_type);
+
+    g_free (name);
+    g_free (mime_type);
+
+    return language;
+}
+
+/* Colors code the way the text editor does, when it is installed. */
+static GtkSourceStyleScheme *
+get_style_scheme (void)
+{
+    GtkSourceStyleSchemeManager *manager;
+    GtkSourceStyleScheme *scheme = NULL;
+    GSettingsSchema *schema;
+    gboolean prefer_dark = FALSE;
+    gchar *theme = NULL;
+
+    manager = gtk_source_style_scheme_manager_get_default ();
+
+    schema = g_settings_schema_source_lookup (g_settings_schema_source_get_default (),
+                                              "org.x.editor.preferences.editor", TRUE);
+    if (schema != NULL) {
+        GSettings *settings;
+        gchar *id;
+
+        settings = g_settings_new_full (schema, NULL, NULL);
+        id = g_settings_get_string (settings, "scheme");
+        scheme = gtk_source_style_scheme_manager_get_scheme (manager, id);
+
+        g_free (id);
+        g_object_unref (settings);
+        g_settings_schema_unref (schema);
+    }
+
+    if (scheme != NULL) {
+        return scheme;
+    }
+
+    g_object_get (gtk_settings_get_default (),
+                  "gtk-application-prefer-dark-theme", &prefer_dark,
+                  "gtk-theme-name", &theme,
+                  NULL);
+
+    if (theme != NULL) {
+        gchar *lower = g_ascii_strdown (theme, -1);
+
+        prefer_dark |= g_strrstr (lower, "dark") != NULL;
+        g_free (lower);
+    }
+
+    g_free (theme);
+
+    return gtk_source_style_scheme_manager_get_scheme (manager,
+                                                       prefer_dark ? "oblivion" : "classic");
+}
+
 static void
 text_loaded_cb (GObject      *source,
                 GAsyncResult *res,
@@ -277,8 +383,11 @@ text_loaded_cb (GObject      *source,
     /* Only a character cut in half at the read limit may be invalid; anything
      * else means the file isn't really text, so the icon stays. */
     if (g_utf8_validate (data, length, &end) || (data + length) - end < 4) {
-        gtk_text_buffer_set_text (gtk_text_view_get_buffer (GTK_TEXT_VIEW (self->text_view)),
-                                  data, end - data);
+        GtkTextBuffer *buffer;
+
+        buffer = gtk_text_view_get_buffer (GTK_TEXT_VIEW (self->text_view));
+        gtk_source_buffer_set_language (GTK_SOURCE_BUFFER (buffer), guess_language (self->file));
+        gtk_text_buffer_set_text (buffer, data, end - data);
         gtk_stack_set_visible_child_name (GTK_STACK (self->stack), "text");
         self->showing_icon = FALSE;
     }
@@ -307,6 +416,63 @@ text_read_cb (GObject      *source,
 }
 
 static void
+clear_document_job (NemoPreviewPane *self)
+{
+    if (self->document_job == NULL) {
+        return;
+    }
+
+    g_signal_handlers_disconnect_by_data (self->document_job, self);
+    ev_job_cancel (self->document_job);
+    g_clear_object (&self->document_job);
+}
+
+static void
+document_loaded_cb (EvJob           *job,
+                    NemoPreviewPane *self)
+{
+    EvDocumentModel *model;
+    gchar *text;
+
+    if (ev_job_is_failed (job)) {
+        clear_document_job (self);
+        return;
+    }
+
+    model = ev_document_model_new_with_document (job->document);
+    ev_document_model_set_sizing_mode (model, EV_SIZING_FIT_WIDTH);
+    ev_document_model_set_continuous (model, TRUE);
+    ev_view_set_model (EV_VIEW (self->document_view), model);
+    g_object_unref (model);
+
+    text = g_strdup_printf ("%d", ev_document_get_n_pages (job->document));
+    gtk_label_set_text (GTK_LABEL (self->pages_label), text);
+    g_free (text);
+
+    gtk_widget_show (self->pages_title);
+    gtk_widget_show (self->pages_label);
+
+    gtk_stack_set_visible_child_name (GTK_STACK (self->stack), "document");
+    self->showing_icon = FALSE;
+
+    clear_document_job (self);
+}
+
+static void
+start_document (NemoPreviewPane *self)
+{
+    gchar *uri;
+
+    uri = nemo_file_get_uri (self->file);
+    self->document_job = ev_job_load_new (uri);
+    g_free (uri);
+
+    g_signal_connect (self->document_job, "finished",
+                      G_CALLBACK (document_loaded_cb), self);
+    ev_job_scheduler_push_job (self->document_job, EV_JOB_PRIORITY_NONE);
+}
+
+static void
 file_ready_cb (NemoFile *file,
                gpointer  user_data)
 {
@@ -326,6 +492,8 @@ file_ready_cb (NemoFile *file,
 
     if (g_str_has_prefix (mime_type, "image/")) {
         start_image (self);
+    } else if (is_document_type (mime_type)) {
+        start_document (self);
     } else if (g_content_type_is_a (mime_type, "text/plain")) {
         GFile *location = nemo_file_get_location (file);
 
@@ -357,6 +525,7 @@ clear_file (NemoPreviewPane *self)
 {
     g_cancellable_cancel (self->cancellable);
     g_clear_object (&self->cancellable);
+    clear_document_job (self);
 
     if (self->file == NULL) {
         return;
@@ -381,6 +550,8 @@ set_file (NemoPreviewPane *self,
     /* Only known for images, once their header has been read. */
     gtk_widget_hide (self->dimensions_title);
     gtk_widget_hide (self->dimensions_label);
+    gtk_widget_hide (self->pages_title);
+    gtk_widget_hide (self->pages_label);
 
     nemo_file_monitor_add (file, self, FILE_ATTRIBUTES | NEMO_FILE_ATTRIBUTE_THUMBNAIL);
     g_signal_connect (file, "changed", G_CALLBACK (file_changed_cb), self);
@@ -526,7 +697,11 @@ nemo_preview_pane_init (NemoPreviewPane *self)
     self->image = gtk_image_new ();
     gtk_stack_add_named (GTK_STACK (self->stack), self->image, "image");
 
-    self->text_view = gtk_text_view_new ();
+    self->text_view = gtk_source_view_new ();
+    gtk_source_buffer_set_highlight_matching_brackets (GTK_SOURCE_BUFFER (gtk_text_view_get_buffer (GTK_TEXT_VIEW (self->text_view))),
+                                                      FALSE);
+    gtk_source_buffer_set_style_scheme (GTK_SOURCE_BUFFER (gtk_text_view_get_buffer (GTK_TEXT_VIEW (self->text_view))),
+                                        get_style_scheme ());
     gtk_text_view_set_editable (GTK_TEXT_VIEW (self->text_view), FALSE);
     gtk_text_view_set_monospace (GTK_TEXT_VIEW (self->text_view), TRUE);
     gtk_text_view_set_wrap_mode (GTK_TEXT_VIEW (self->text_view), GTK_WRAP_WORD_CHAR);
@@ -536,6 +711,11 @@ nemo_preview_pane_init (NemoPreviewPane *self)
                                     GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
     gtk_container_add (GTK_CONTAINER (scrolled), self->text_view);
     gtk_stack_add_named (GTK_STACK (self->stack), scrolled, "text");
+
+    self->document_view = ev_view_new ();
+    scrolled = gtk_scrolled_window_new (NULL, NULL);
+    gtk_container_add (GTK_CONTAINER (scrolled), self->document_view);
+    gtk_stack_add_named (GTK_STACK (self->stack), scrolled, "document");
 
     self->message = gtk_label_new (NULL);
     gtk_label_set_line_wrap (GTK_LABEL (self->message), TRUE);
@@ -565,7 +745,8 @@ nemo_preview_pane_init (NemoPreviewPane *self)
     self->size_label = add_info_row (GTK_GRID (grid), 1, _("Size"), NULL);
     self->dimensions_label = add_info_row (GTK_GRID (grid), 2, _("Dimensions"),
                                            &self->dimensions_title);
-    self->modified_label = add_info_row (GTK_GRID (grid), 3, _("Modified"), NULL);
+    self->pages_label = add_info_row (GTK_GRID (grid), 3, _("Pages"), &self->pages_title);
+    self->modified_label = add_info_row (GTK_GRID (grid), 4, _("Modified"), NULL);
 
     gtk_widget_show_all (GTK_WIDGET (self));
     gtk_widget_set_no_show_all (GTK_WIDGET (self), TRUE);
@@ -593,6 +774,8 @@ nemo_preview_pane_class_init (NemoPreviewPaneClass *klass)
     GObjectClass *oclass = G_OBJECT_CLASS (klass);
 
     oclass->dispose = nemo_preview_pane_dispose;
+
+    ev_init ();
 }
 
 GtkWidget *
