@@ -691,7 +691,8 @@ static void
 nemo_window_sync_pane_gap (NemoWindow *window)
 {
 	GtkWidget *paneds[] = { window->details->content_paned,
-				window->details->split_view_hpane };
+				window->details->split_view_hpane,
+				window->details->preview_paned };
 	gboolean show_gap;
 	guint i;
 
