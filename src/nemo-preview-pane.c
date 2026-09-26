@@ -23,11 +23,13 @@
 #include <string.h>
 
 #include <glib/gi18n.h>
+#include <gst/gst.h>
 #include <gtksourceview/gtksource.h>
 #include <xreader-document.h>
 #include <xreader-view.h>
 #include <libnemo-private/nemo-file.h>
 #include <libnemo-private/nemo-file-attributes.h>
+#include <libnemo-private/nemo-icon-info.h>
 
 #define TEXT_PREVIEW_BYTES (64 * 1024)
 #define MAX_ICON_SIZE 256
@@ -52,6 +54,12 @@ struct _NemoPreviewPane {
     GtkWidget *pages_title;
     GtkWidget *pages_label;
     GtkWidget *document_view;
+    GtkWidget *media_box;
+    GtkWidget *video_widget;
+    GtkWidget *audio_image;
+    GtkWidget *play_button;
+    GtkWidget *seek_scale;
+    GtkWidget *time_label;
 
     NemoView *view;
     NemoFile *file;
@@ -61,6 +69,11 @@ struct _NemoPreviewPane {
     gint load_width;
     gint load_height;
     EvJob *document_job;
+
+    GstElement *player;
+    guint bus_watch_id;
+    guint position_id;
+    gboolean media_is_video;
 };
 
 G_DEFINE_TYPE (NemoPreviewPane, nemo_preview_pane, GTK_TYPE_BOX)
@@ -490,6 +503,221 @@ start_document (NemoPreviewPane *self)
 }
 
 static void
+set_media_playing (NemoPreviewPane *self,
+                   gboolean         playing);
+
+static gchar *
+format_time (gint64 nanoseconds)
+{
+    gint64 seconds = MAX (nanoseconds, 0) / GST_SECOND;
+
+    if (seconds >= 3600) {
+        return g_strdup_printf ("%d:%02d:%02d", (gint) (seconds / 3600),
+                                (gint) (seconds / 60 % 60), (gint) (seconds % 60));
+    }
+
+    return g_strdup_printf ("%d:%02d", (gint) (seconds / 60), (gint) (seconds % 60));
+}
+
+static gboolean
+update_media_position (gpointer user_data)
+{
+    NemoPreviewPane *self = user_data;
+    gint64 position = 0, duration = 0;
+    gchar *position_text, *duration_text, *text;
+
+    gst_element_query_position (self->player, GST_FORMAT_TIME, &position);
+    gst_element_query_duration (self->player, GST_FORMAT_TIME, &duration);
+
+    if (duration > 0) {
+        gtk_range_set_range (GTK_RANGE (self->seek_scale), 0, (gdouble) duration / GST_SECOND);
+    }
+
+    gtk_range_set_value (GTK_RANGE (self->seek_scale), (gdouble) position / GST_SECOND);
+
+    position_text = format_time (position);
+    duration_text = format_time (duration);
+    text = g_strdup_printf ("%s / %s", position_text, duration_text);
+    gtk_label_set_text (GTK_LABEL (self->time_label), text);
+
+    g_free (text);
+    g_free (position_text);
+    g_free (duration_text);
+
+    return G_SOURCE_CONTINUE;
+}
+
+static void
+set_media_playing (NemoPreviewPane *self,
+                   gboolean         playing)
+{
+    gtk_button_set_image (GTK_BUTTON (self->play_button),
+                          gtk_image_new_from_icon_name (playing ? "xsi-media-playback-pause-symbolic"
+                                                                : "xsi-media-playback-start-symbolic",
+                                                        GTK_ICON_SIZE_BUTTON));
+
+    g_clear_handle_id (&self->position_id, g_source_remove);
+
+    if (playing) {
+        self->position_id = g_timeout_add (250, update_media_position, self);
+    }
+
+    gst_element_set_state (self->player, playing ? GST_STATE_PLAYING : GST_STATE_PAUSED);
+}
+
+static void
+stop_media (NemoPreviewPane *self)
+{
+    if (self->player == NULL) {
+        return;
+    }
+
+    g_clear_handle_id (&self->position_id, g_source_remove);
+    gst_element_set_state (self->player, GST_STATE_NULL);
+}
+
+static void
+show_media (NemoPreviewPane *self)
+{
+    if (self->media_is_video) {
+        gtk_widget_show (self->video_widget);
+        gtk_widget_hide (self->audio_image);
+    } else {
+        GdkPixbuf *pixbuf;
+
+        pixbuf = nemo_file_get_icon_pixbuf (self->file, NEMO_ICON_SIZE_LARGER, TRUE,
+                                            gtk_widget_get_scale_factor (GTK_WIDGET (self)),
+                                            NEMO_FILE_ICON_FLAGS_USE_THUMBNAILS);
+        gtk_image_set_from_pixbuf (GTK_IMAGE (self->audio_image), pixbuf);
+        g_clear_object (&pixbuf);
+
+        gtk_widget_hide (self->video_widget);
+        gtk_widget_show (self->audio_image);
+    }
+
+    update_media_position (self);
+    gtk_stack_set_visible_child_name (GTK_STACK (self->stack), "media");
+    self->showing_icon = FALSE;
+}
+
+static gboolean
+player_bus_cb (GstBus     *bus,
+               GstMessage *message,
+               gpointer    user_data)
+{
+    NemoPreviewPane *self = user_data;
+
+    if (GST_MESSAGE_SRC (message) != GST_OBJECT (self->player) &&
+        GST_MESSAGE_TYPE (message) != GST_MESSAGE_ERROR) {
+        return G_SOURCE_CONTINUE;
+    }
+
+    switch (GST_MESSAGE_TYPE (message)) {
+        case GST_MESSAGE_ASYNC_DONE:
+            /* The first frame is ready: until then the thumbnail stays. */
+            if (self->file != NULL && self->showing_icon) {
+                show_media (self);
+            }
+            break;
+        case GST_MESSAGE_EOS:
+            set_media_playing (self, FALSE);
+            gst_element_seek_simple (self->player, GST_FORMAT_TIME,
+                                     GST_SEEK_FLAG_FLUSH | GST_SEEK_FLAG_KEY_UNIT, 0);
+            update_media_position (self);
+            break;
+        case GST_MESSAGE_ERROR:
+            /* No decoder for it, most likely; the icon stays. */
+            stop_media (self);
+            if (self->file != NULL && !self->showing_icon) {
+                show_icon (self);
+            }
+            break;
+        default:
+            break;
+    }
+
+    return G_SOURCE_CONTINUE;
+}
+
+static gboolean
+ensure_player (NemoPreviewPane *self)
+{
+    GstElement *sink;
+    GstBus *bus;
+
+    if (self->player != NULL) {
+        return TRUE;
+    }
+
+    self->player = gst_element_factory_make ("playbin", NULL);
+    sink = gst_element_factory_make ("gtksink", NULL);
+
+    if (self->player == NULL || sink == NULL) {
+        g_clear_object (&self->player);
+        g_clear_object (&sink);
+        return FALSE;
+    }
+
+    gst_object_ref_sink (self->player);
+
+    g_object_get (sink, "widget", &self->video_widget, NULL);
+    gtk_widget_set_vexpand (self->video_widget, TRUE);
+    gtk_box_pack_start (GTK_BOX (self->media_box), self->video_widget, TRUE, TRUE, 0);
+    gtk_box_reorder_child (GTK_BOX (self->media_box), self->video_widget, 0);
+    g_object_unref (self->video_widget);
+
+    g_object_set (self->player, "video-sink", sink, NULL);
+
+    bus = gst_element_get_bus (self->player);
+    self->bus_watch_id = gst_bus_add_watch (bus, player_bus_cb, self);
+    gst_object_unref (bus);
+
+    return TRUE;
+}
+
+static void
+start_media (NemoPreviewPane *self,
+             gboolean         is_video)
+{
+    gchar *uri;
+
+    if (!ensure_player (self)) {
+        return;
+    }
+
+    self->media_is_video = is_video;
+
+    uri = nemo_file_get_uri (self->file);
+    g_object_set (self->player, "uri", uri, NULL);
+    g_free (uri);
+
+    gtk_range_set_range (GTK_RANGE (self->seek_scale), 0, 1);
+    set_media_playing (self, FALSE);
+}
+
+static void
+play_button_clicked_cb (NemoPreviewPane *self)
+{
+    GstState state;
+
+    gst_element_get_state (self->player, &state, NULL, 0);
+    set_media_playing (self, state != GST_STATE_PLAYING);
+}
+
+static gboolean
+seek_scale_change_value_cb (GtkRange        *range,
+                            GtkScrollType    scroll,
+                            gdouble          value,
+                            NemoPreviewPane *self)
+{
+    gst_element_seek_simple (self->player, GST_FORMAT_TIME,
+                             GST_SEEK_FLAG_FLUSH | GST_SEEK_FLAG_KEY_UNIT,
+                             (gint64) (value * GST_SECOND));
+
+    return FALSE;
+}
+
+static void
 file_ready_cb (NemoFile *file,
                gpointer  user_data)
 {
@@ -509,6 +737,9 @@ file_ready_cb (NemoFile *file,
 
     if (g_str_has_prefix (mime_type, "image/")) {
         start_image (self);
+    } else if (g_str_has_prefix (mime_type, "video/") ||
+               g_str_has_prefix (mime_type, "audio/")) {
+        start_media (self, g_str_has_prefix (mime_type, "video/"));
     } else if (is_document_type (mime_type)) {
         start_document (self);
     } else if (g_content_type_is_a (mime_type, "text/plain")) {
@@ -543,6 +774,7 @@ clear_file (NemoPreviewPane *self)
     g_cancellable_cancel (self->cancellable);
     g_clear_object (&self->cancellable);
     clear_document_job (self);
+    stop_media (self);
 
     if (self->file == NULL) {
         return;
@@ -698,7 +930,7 @@ add_info_row (GtkGrid     *grid,
 static void
 nemo_preview_pane_init (NemoPreviewPane *self)
 {
-    GtkWidget *scrolled, *grid;
+    GtkWidget *scrolled, *grid, *controls;
     PangoAttrList *attrs;
 
     gtk_orientable_set_orientation (GTK_ORIENTABLE (self), GTK_ORIENTATION_VERTICAL);
@@ -733,6 +965,39 @@ nemo_preview_pane_init (NemoPreviewPane *self)
     scrolled = gtk_scrolled_window_new (NULL, NULL);
     gtk_container_add (GTK_CONTAINER (scrolled), self->document_view);
     gtk_stack_add_named (GTK_STACK (self->stack), scrolled, "document");
+
+    /* The video widget comes from the player, which is only made once a
+     * media file is first selected. */
+    self->media_box = gtk_box_new (GTK_ORIENTATION_VERTICAL, 6);
+    gtk_stack_add_named (GTK_STACK (self->stack), self->media_box, "media");
+
+    self->audio_image = gtk_image_new ();
+    gtk_widget_set_vexpand (self->audio_image, TRUE);
+    gtk_box_pack_start (GTK_BOX (self->media_box), self->audio_image, TRUE, TRUE, 0);
+
+    controls = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 6);
+    gtk_box_pack_end (GTK_BOX (self->media_box), controls, FALSE, FALSE, 0);
+
+    self->play_button = gtk_button_new ();
+    gtk_button_set_relief (GTK_BUTTON (self->play_button), GTK_RELIEF_NONE);
+    gtk_widget_set_tooltip_text (self->play_button, _("Play or pause"));
+    /* Clicking the controls must leave the keyboard with the file view, so
+     * the arrow keys keep moving through files. */
+    gtk_widget_set_can_focus (self->play_button, FALSE);
+    g_signal_connect_swapped (self->play_button, "clicked",
+                              G_CALLBACK (play_button_clicked_cb), self);
+    gtk_box_pack_start (GTK_BOX (controls), self->play_button, FALSE, FALSE, 0);
+
+    self->seek_scale = gtk_scale_new_with_range (GTK_ORIENTATION_HORIZONTAL, 0, 1, 1);
+    gtk_scale_set_draw_value (GTK_SCALE (self->seek_scale), FALSE);
+    gtk_widget_set_can_focus (self->seek_scale, FALSE);
+    g_signal_connect (self->seek_scale, "change-value",
+                      G_CALLBACK (seek_scale_change_value_cb), self);
+    gtk_box_pack_start (GTK_BOX (controls), self->seek_scale, TRUE, TRUE, 0);
+
+    self->time_label = gtk_label_new (NULL);
+    gtk_style_context_add_class (gtk_widget_get_style_context (self->time_label), "dim-label");
+    gtk_box_pack_start (GTK_BOX (controls), self->time_label, FALSE, FALSE, 0);
 
     self->message = gtk_label_new (NULL);
     gtk_label_set_line_wrap (GTK_LABEL (self->message), TRUE);
@@ -782,6 +1047,12 @@ nemo_preview_pane_dispose (GObject *object)
     forget_view (self);
     clear_file (self);
 
+    if (self->player != NULL) {
+        g_clear_handle_id (&self->bus_watch_id, g_source_remove);
+        gst_object_unref (self->player);
+        self->player = NULL;
+    }
+
     G_OBJECT_CLASS (nemo_preview_pane_parent_class)->dispose (object);
 }
 
@@ -793,6 +1064,7 @@ nemo_preview_pane_class_init (NemoPreviewPaneClass *klass)
     oclass->dispose = nemo_preview_pane_dispose;
 
     ev_init ();
+    gst_init (NULL, NULL);
 }
 
 GtkWidget *
