@@ -93,6 +93,7 @@ xapp    = dependency('xapp',                        version: '>=2.0.0')
 xreader_doc = dependency('xreader-document-1.5')
 xreader_view = dependency('xreader-view-1.5')
 gtksource = dependency('gtksourceview-4')
+gstreamer = dependency('gstreamer-1.0')
 
 # Facultative dependencies
 

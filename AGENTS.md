@@ -24,8 +24,10 @@ Packaging build (what CI and Mint use — note it *disables* `meson test`):
 dpkg-buildpackage -us -uc             # see debian/rules for the configure flags
 ```
 
-The preview pane links xreader (`libxreaderview-dev`, `libxreaderdocument-dev`) and GtkSourceView 4
-(`libgtksourceview-4-dev`); these are required, not optional.
+The preview pane links xreader (`libxreaderview-dev`, `libxreaderdocument-dev`), GtkSourceView 4
+(`libgtksourceview-4-dev`) and GStreamer (`libgstreamer1.0-dev`); these are required, not optional.
+Playback also needs the `playbin` and `gtksink` plugins at runtime (`gstreamer1.0-plugins-base`,
+`gstreamer1.0-gtk3`), which the nemo package depends on explicitly since shlibs can't see plugins.
 
 Useful meson options (see `meson_options.txt`): `-Dtracker=true|auto`, `-Dgtk_layer_shell=true`
 (Wayland desktop), `-Dexif`, `-Dxmp`, `-Dselinux`, `-Dempty_view`, `-Dgtk_doc=true`,
