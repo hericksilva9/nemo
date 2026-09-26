@@ -75,6 +75,8 @@ struct _NemoPreviewPane {
     guint bus_watch_id;
     guint position_id;
     gboolean media_is_video;
+    GdkPixbuf *cover;
+    gboolean showing_document;
     gboolean gl_confirmed;
     gboolean gl_failed;
 };
@@ -487,6 +489,7 @@ document_loaded_cb (EvJob           *job,
 
     gtk_stack_set_visible_child_name (GTK_STACK (self->stack), "document");
     self->showing_icon = FALSE;
+    self->showing_document = TRUE;
 
     clear_document_job (self);
 }
@@ -580,19 +583,107 @@ stop_media (NemoPreviewPane *self)
 }
 
 static void
+update_audio_picture (NemoPreviewPane *self)
+{
+    GdkPixbuf *pixbuf;
+    cairo_surface_t *surface;
+    gint scale, width, height, max_width, max_height;
+
+    scale = gtk_widget_get_scale_factor (GTK_WIDGET (self));
+
+    if (self->cover != NULL) {
+        /* Fit the pane, leaving room below for the controls. */
+        get_preview_area (self, &max_width, &max_height);
+        max_width *= scale;
+        max_height = max_height * scale * 3 / 4;
+
+        width = gdk_pixbuf_get_width (self->cover);
+        height = gdk_pixbuf_get_height (self->cover);
+
+        if (width > max_width || height > max_height) {
+            gdouble factor = MIN ((gdouble) max_width / width, (gdouble) max_height / height);
+
+            pixbuf = gdk_pixbuf_scale_simple (self->cover,
+                                              MAX (width * factor, 1), MAX (height * factor, 1),
+                                              GDK_INTERP_BILINEAR);
+        } else {
+            pixbuf = g_object_ref (self->cover);
+        }
+    } else {
+        pixbuf = nemo_file_get_icon_pixbuf (self->file, NEMO_ICON_SIZE_LARGER, TRUE, scale,
+                                            NEMO_FILE_ICON_FLAGS_USE_THUMBNAILS);
+    }
+
+    if (pixbuf == NULL) {
+        return;
+    }
+
+    surface = gdk_cairo_surface_create_from_pixbuf (pixbuf, scale, NULL);
+    gtk_image_set_from_surface (GTK_IMAGE (self->audio_image), surface);
+    cairo_surface_destroy (surface);
+    g_object_unref (pixbuf);
+}
+
+/* Album art rides along in the tags the player posts while it prerolls. */
+static void
+read_cover (NemoPreviewPane *self,
+            GstMessage      *message)
+{
+    GstTagList *tags = NULL;
+    GstSample *sample = NULL;
+    GstBuffer *buffer;
+    GstMapInfo map;
+    GdkPixbufLoader *loader;
+
+    if (self->media_is_video || self->cover != NULL) {
+        return;
+    }
+
+    gst_message_parse_tag (message, &tags);
+
+    if (!gst_tag_list_get_sample (tags, GST_TAG_IMAGE, &sample) &&
+        !gst_tag_list_get_sample (tags, GST_TAG_PREVIEW_IMAGE, &sample)) {
+        gst_tag_list_unref (tags);
+        return;
+    }
+
+    buffer = gst_sample_get_buffer (sample);
+
+    if (buffer != NULL && gst_buffer_map (buffer, &map, GST_MAP_READ)) {
+        loader = gdk_pixbuf_loader_new ();
+
+        if (gdk_pixbuf_loader_write (loader, map.data, map.size, NULL) &&
+            gdk_pixbuf_loader_close (loader, NULL)) {
+            GdkPixbuf *pixbuf = gdk_pixbuf_loader_get_pixbuf (loader);
+
+            if (pixbuf != NULL) {
+                self->cover = gdk_pixbuf_apply_embedded_orientation (pixbuf);
+            }
+        } else {
+            gdk_pixbuf_loader_close (loader, NULL);
+        }
+
+        g_object_unref (loader);
+        gst_buffer_unmap (buffer, &map);
+    }
+
+    gst_sample_unref (sample);
+    gst_tag_list_unref (tags);
+
+    /* Tags can come after the first frame is already showing. */
+    if (self->cover != NULL && !self->showing_icon) {
+        update_audio_picture (self);
+    }
+}
+
+static void
 show_media (NemoPreviewPane *self)
 {
     if (self->media_is_video) {
         gtk_widget_show (self->video_frame);
         gtk_widget_hide (self->audio_image);
     } else {
-        GdkPixbuf *pixbuf;
-
-        pixbuf = nemo_file_get_icon_pixbuf (self->file, NEMO_ICON_SIZE_LARGER, TRUE,
-                                            gtk_widget_get_scale_factor (GTK_WIDGET (self)),
-                                            NEMO_FILE_ICON_FLAGS_USE_THUMBNAILS);
-        gtk_image_set_from_pixbuf (GTK_IMAGE (self->audio_image), pixbuf);
-        g_clear_object (&pixbuf);
+        update_audio_picture (self);
 
         gtk_widget_hide (self->video_frame);
         gtk_widget_show (self->audio_image);
@@ -679,6 +770,11 @@ player_bus_cb (GstBus     *bus,
                gpointer    user_data)
 {
     NemoPreviewPane *self = user_data;
+
+    if (GST_MESSAGE_TYPE (message) == GST_MESSAGE_TAG) {
+        read_cover (self, message);
+        return G_SOURCE_CONTINUE;
+    }
 
     if (GST_MESSAGE_SRC (message) != GST_OBJECT (self->player) &&
         GST_MESSAGE_TYPE (message) != GST_MESSAGE_ERROR) {
@@ -799,6 +895,7 @@ start_media (NemoPreviewPane *self,
     }
 
     self->media_is_video = is_video;
+    g_clear_object (&self->cover);
 
     uri = nemo_file_get_uri (self->file);
     g_object_set (self->player, "uri", uri, NULL);
@@ -888,6 +985,17 @@ clear_file (NemoPreviewPane *self)
     g_clear_object (&self->cancellable);
     clear_document_job (self);
     stop_media (self);
+    g_clear_object (&self->cover);
+
+    /* The view would otherwise hold the last document, pages and all, until
+     * the next one replaced it. */
+    if (self->showing_document) {
+        EvDocumentModel *empty = ev_document_model_new ();
+
+        ev_view_set_model (EV_VIEW (self->document_view), empty);
+        g_object_unref (empty);
+        self->showing_document = FALSE;
+    }
 
     if (self->file == NULL) {
         return;
