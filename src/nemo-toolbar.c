@@ -337,6 +337,7 @@ toolbar_create_action_button (NemoToolbar *self,
 #define VIEW_ITEM_KEY "nemo-toolbar-view-item"
 #define VIEW_ACTION_KEY "nemo-toolbar-view-action"
 #define VIEW_ICON_KEY "nemo-toolbar-view-icon"
+#define VIEW_ACTION_NAME_KEY "nemo-toolbar-view-action-name"
 
 /* Same reasoning as the user actions above: an action that does not apply to
  * the current location turns invisible, so it is shown greyed out in place
@@ -364,6 +365,11 @@ toolbar_view_action_changed (GtkAction  *action,
     tooltip = gtk_action_get_tooltip (action);
     gtk_widget_set_tooltip_text (button, tooltip != NULL ? tooltip : _(info->label));
 
+    /* The arrow half of a split button keeps its arrow. */
+    if (g_object_get_data (G_OBJECT (button), VIEW_ICON_KEY) == NULL) {
+        return;
+    }
+
     icon_name = gtk_action_get_icon_name (action);
     gtk_image_set_from_icon_name (g_object_get_data (G_OBJECT (button), VIEW_ICON_KEY),
                                   icon_name != NULL ? icon_name : info->icon_name,
@@ -385,7 +391,10 @@ toolbar_bind_view_button (NemoToolbar *self,
     bound = g_object_get_data (G_OBJECT (button), VIEW_ACTION_KEY);
 
     if (self->priv->action_view != NULL) {
-        action = nemo_view_get_action (self->priv->action_view, info->id);
+        const gchar *name = g_object_get_data (G_OBJECT (button), VIEW_ACTION_NAME_KEY);
+
+        action = nemo_view_get_action (self->priv->action_view,
+                                       name != NULL ? name : info->id);
     }
 
     if (action == bound) {
@@ -476,6 +485,86 @@ toolbar_view_menu_button_clicked (GtkButton   *button,
                               GDK_GRAVITY_SOUTH_WEST, GDK_GRAVITY_NORTH_WEST, NULL);
 }
 
+static void
+toolbar_setup_view_button (NemoToolbar               *self,
+                           GtkWidget                 *button,
+                           const NemoToolbarItemInfo *info)
+{
+    gtk_widget_set_can_focus (button, FALSE);
+    gtk_widget_set_sensitive (button, FALSE);
+    gtk_style_context_add_class (gtk_widget_get_style_context (button), GTK_STYLE_CLASS_FLAT);
+    g_object_set_data (G_OBJECT (button), VIEW_ITEM_KEY, (gpointer) info);
+
+    self->priv->view_buttons = g_list_prepend (self->priv->view_buttons, button);
+    toolbar_bind_view_button (self, button);
+}
+
+/* Hovering either half of a split button lights up both, so they read as one. */
+static gboolean
+toolbar_split_crossing (GtkWidget        *button,
+                        GdkEventCrossing *event,
+                        GtkWidget        *sibling)
+{
+    if (event->type == GDK_ENTER_NOTIFY) {
+        gtk_widget_set_state_flags (sibling, GTK_STATE_FLAG_PRELIGHT, FALSE);
+    } else {
+        gtk_widget_unset_state_flags (sibling, GTK_STATE_FLAG_PRELIGHT);
+    }
+
+    return GDK_EVENT_PROPAGATE;
+}
+
+static GtkWidget *
+toolbar_create_split_button (NemoToolbar               *self,
+                             const NemoToolbarItemInfo *info,
+                             gboolean                   show_label)
+{
+    GtkWidget *box;
+    GtkWidget *main_button;
+    GtkWidget *arrow_button;
+    GtkWidget *image;
+    GtkWidget *arrow;
+
+    main_button = gtk_button_new ();
+    image = gtk_image_new_from_icon_name (info->icon_name, GTK_ICON_SIZE_BUTTON);
+    gtk_button_set_image (GTK_BUTTON (main_button), image);
+    g_object_set_data (G_OBJECT (main_button), VIEW_ICON_KEY, image);
+    g_object_set_data (G_OBJECT (main_button), VIEW_ACTION_NAME_KEY, (gpointer) info->primary_action);
+
+    if (show_label) {
+        toolbar_button_show_label (main_button, _(info->label));
+    }
+
+    arrow = gtk_image_new_from_icon_name ("xsi-pan-down-symbolic", GTK_ICON_SIZE_BUTTON);
+    gtk_image_set_pixel_size (GTK_IMAGE (arrow), 12);
+    arrow_button = gtk_button_new ();
+    gtk_container_add (GTK_CONTAINER (arrow_button), arrow);
+
+    gtk_style_context_add_class (gtk_widget_get_style_context (main_button), "nemo-split-main");
+    gtk_style_context_add_class (gtk_widget_get_style_context (arrow_button), "nemo-split-arrow");
+
+    box = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 0);
+    gtk_style_context_add_class (gtk_widget_get_style_context (box), GTK_STYLE_CLASS_LINKED);
+    gtk_container_add (GTK_CONTAINER (box), main_button);
+    gtk_container_add (GTK_CONTAINER (box), arrow_button);
+
+    gtk_widget_set_tooltip_text (main_button, _(info->label));
+    gtk_widget_set_tooltip_text (arrow_button, _(info->label));
+
+    toolbar_setup_view_button (self, main_button, info);
+    toolbar_setup_view_button (self, arrow_button, info);
+
+    g_signal_connect (main_button, "clicked", G_CALLBACK (toolbar_view_button_clicked), self);
+    g_signal_connect (arrow_button, "clicked", G_CALLBACK (toolbar_view_menu_button_clicked), self);
+
+    g_signal_connect (main_button, "enter-notify-event", G_CALLBACK (toolbar_split_crossing), arrow_button);
+    g_signal_connect (main_button, "leave-notify-event", G_CALLBACK (toolbar_split_crossing), arrow_button);
+    g_signal_connect (arrow_button, "enter-notify-event", G_CALLBACK (toolbar_split_crossing), main_button);
+    g_signal_connect (arrow_button, "leave-notify-event", G_CALLBACK (toolbar_split_crossing), main_button);
+
+    return box;
+}
+
 static GtkWidget *
 toolbar_create_view_button (NemoToolbar               *self,
                             const NemoToolbarItemInfo *info,
@@ -483,6 +572,10 @@ toolbar_create_view_button (NemoToolbar               *self,
 {
     GtkWidget *button;
     GtkWidget *image;
+
+    if (info->primary_action != NULL) {
+        return toolbar_create_split_button (self, info, show_label);
+    }
 
     /* Deliberately not bound with gtk_activatable_set_related_action: that
      * would tie the button to one view's action for good, and would hide it
