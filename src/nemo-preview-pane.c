@@ -22,6 +22,8 @@
 
 #include <string.h>
 
+#include <archive.h>
+#include <archive_entry.h>
 #include <glib/gi18n.h>
 #include <gst/gst.h>
 #include <gtksourceview/gtksource.h>
@@ -33,6 +35,7 @@
 
 #define TEXT_PREVIEW_BYTES (64 * 1024)
 #define MAX_ICON_SIZE 256
+#define ARCHIVE_MAX_ENTRIES 5000
 
 #define FILE_ATTRIBUTES (NEMO_FILE_ATTRIBUTE_INFO | \
                          NEMO_FILE_ATTRIBUTE_DIRECTORY_ITEM_COUNT)
@@ -53,6 +56,9 @@ struct _NemoPreviewPane {
     GtkWidget *dimensions_label;
     GtkWidget *pages_title;
     GtkWidget *pages_label;
+    GtkWidget *contents_title;
+    GtkWidget *contents_label;
+    GtkWidget *archive_view;
     GtkWidget *document_view;
     GtkWidget *media_box;
     GtkWidget *video_frame;
@@ -958,6 +964,353 @@ seek_scale_change_value_cb (GtkRange        *range,
     return FALSE;
 }
 
+/* Formats whose listing is worth showing; zip-based documents (odt, docx,
+ * epub, jar) have mime types of their own and so stay out. */
+static const gchar *archive_types[] = {
+    "application/zip",
+    "application/x-7z-compressed",
+    "application/vnd.rar",
+    "application/x-rar",
+    "application/x-tar",
+    "application/x-compressed-tar",
+    "application/x-bzip-compressed-tar",
+    "application/x-bzip2-compressed-tar",
+    "application/x-xz-compressed-tar",
+    "application/x-lzma-compressed-tar",
+    "application/x-zstd-compressed-tar",
+    "application/x-cpio",
+    "application/x-iso9660-image",
+    NULL
+};
+
+static gboolean
+is_archive_type (const gchar *mime_type)
+{
+    return g_strv_contains (archive_types, mime_type);
+}
+
+typedef struct {
+    gchar *path;
+    gint64 size;
+    gboolean is_dir;
+} ArchiveEntry;
+
+typedef struct {
+    GArray *entries;
+    guint n_files;
+    gint64 total_size;
+    gboolean truncated;
+} ArchiveListing;
+
+static void
+listing_entry_clear (ArchiveEntry *entry)
+{
+    g_free (entry->path);
+}
+
+static void
+archive_listing_free (ArchiveListing *listing)
+{
+    g_array_unref (listing->entries);
+    g_free (listing);
+}
+
+/* Reads only the headers, never the data, so even large archives list fast. */
+static void
+list_archive_thread (GTask        *task,
+                     gpointer      source,
+                     gpointer      task_data,
+                     GCancellable *cancellable)
+{
+    const gchar *path = task_data;
+    struct archive *a;
+    struct archive_entry *entry;
+    ArchiveListing *listing;
+    int r;
+
+    a = archive_read_new ();
+    archive_read_support_filter_all (a);
+    archive_read_support_format_all (a);
+
+    if (archive_read_open_filename (a, path, 64 * 1024) != ARCHIVE_OK) {
+        g_task_return_new_error (task, G_IO_ERROR, G_IO_ERROR_FAILED,
+                                 "%s", archive_error_string (a));
+        archive_read_free (a);
+        return;
+    }
+
+    listing = g_new0 (ArchiveListing, 1);
+    listing->entries = g_array_new (FALSE, FALSE, sizeof (ArchiveEntry));
+    g_array_set_clear_func (listing->entries, (GDestroyNotify) listing_entry_clear);
+
+    while ((r = archive_read_next_header (a, &entry)) == ARCHIVE_OK ||
+           r == ARCHIVE_WARN) {
+        ArchiveEntry e;
+        const gchar *name;
+
+        if (g_cancellable_is_cancelled (cancellable)) {
+            break;
+        }
+
+        if (listing->entries->len >= ARCHIVE_MAX_ENTRIES) {
+            listing->truncated = TRUE;
+            break;
+        }
+
+        name = archive_entry_pathname_utf8 (entry);
+
+        if (name == NULL) {
+            name = archive_entry_pathname (entry);
+        }
+
+        if (name == NULL) {
+            continue;
+        }
+
+        /* Old zips store names in the DOS codepage of whatever Windows made
+         * them.  Which one isn't recorded, so take CP850, the Western European
+         * one, which covers every byte; GTK won't take anything but UTF-8. */
+        if (g_utf8_validate (name, -1, NULL)) {
+            e.path = g_strdup (name);
+        } else {
+            e.path = g_convert (name, -1, "UTF-8", "CP850", NULL, NULL, NULL);
+
+            if (e.path == NULL) {
+                e.path = g_utf8_make_valid (name, -1);
+            }
+        }
+        e.is_dir = archive_entry_filetype (entry) == AE_IFDIR;
+        e.size = archive_entry_size_is_set (entry) ? archive_entry_size (entry) : 0;
+        g_array_append_val (listing->entries, e);
+
+        if (!e.is_dir) {
+            listing->n_files++;
+            listing->total_size += e.size;
+        }
+    }
+
+    archive_read_free (a);
+
+    /* An archive that failed before its first entry (encrypted 7z headers,
+     * say) has nothing worth showing. */
+    if (listing->entries->len == 0 && r == ARCHIVE_FATAL) {
+        archive_listing_free (listing);
+        g_task_return_new_error (task, G_IO_ERROR, G_IO_ERROR_FAILED, "unreadable archive");
+        return;
+    }
+
+    g_task_return_pointer (task, listing, (GDestroyNotify) archive_listing_free);
+}
+
+enum {
+    ARCHIVE_COLUMN_ICON,
+    ARCHIVE_COLUMN_NAME,
+    ARCHIVE_COLUMN_SIZE,
+    ARCHIVE_COLUMN_IS_DIR,
+    ARCHIVE_N_COLUMNS
+};
+
+/* Returns the row for a folder, making it and its parents as needed: zips
+ * often leave out the entries for their folders. */
+static void
+get_archive_folder (GtkTreeStore *store,
+                    GHashTable   *folders,
+                    const gchar  *path,
+                    GtkTreeIter  *iter)
+{
+    GtkTreeIter *found, parent;
+    const gchar *slash;
+    gchar *parent_path;
+
+    found = g_hash_table_lookup (folders, path);
+
+    if (found != NULL) {
+        *iter = *found;
+        return;
+    }
+
+    slash = strrchr (path, '/');
+
+    if (slash != NULL) {
+        parent_path = g_strndup (path, slash - path);
+        get_archive_folder (store, folders, parent_path, &parent);
+        g_free (parent_path);
+    }
+
+    gtk_tree_store_insert_with_values (store, iter, slash != NULL ? &parent : NULL, -1,
+                                       ARCHIVE_COLUMN_ICON, "folder-symbolic",
+                                       ARCHIVE_COLUMN_NAME, slash != NULL ? slash + 1 : path,
+                                       ARCHIVE_COLUMN_IS_DIR, TRUE,
+                                       -1);
+    g_hash_table_insert (folders, g_strdup (path), g_memdup2 (iter, sizeof (GtkTreeIter)));
+}
+
+static gint
+archive_sort_func (GtkTreeModel *model,
+                   GtkTreeIter  *a,
+                   GtkTreeIter  *b,
+                   gpointer      user_data)
+{
+    gboolean a_dir, b_dir;
+    gchar *a_name, *b_name;
+    gint result;
+
+    gtk_tree_model_get (model, a, ARCHIVE_COLUMN_IS_DIR, &a_dir, ARCHIVE_COLUMN_NAME, &a_name, -1);
+    gtk_tree_model_get (model, b, ARCHIVE_COLUMN_IS_DIR, &b_dir, ARCHIVE_COLUMN_NAME, &b_name, -1);
+
+    if (a_dir != b_dir) {
+        result = a_dir ? -1 : 1;
+    } else {
+        result = g_utf8_collate (a_name, b_name);
+    }
+
+    g_free (a_name);
+    g_free (b_name);
+
+    return result;
+}
+
+static void
+archive_listed_cb (GObject      *source,
+                   GAsyncResult *res,
+                   gpointer      user_data)
+{
+    NemoPreviewPane *self;
+    ArchiveListing *listing;
+    GtkTreeStore *store;
+    GHashTable *folders;
+    gchar *size, *text;
+    guint i;
+
+    listing = g_task_propagate_pointer (G_TASK (res), NULL);
+
+    /* Also NULL once cancelled: the pane has moved on, and may be gone. */
+    if (listing == NULL) {
+        return;
+    }
+
+    self = user_data;
+    store = gtk_tree_store_new (ARCHIVE_N_COLUMNS, G_TYPE_STRING, G_TYPE_STRING,
+                                G_TYPE_STRING, G_TYPE_BOOLEAN);
+    folders = g_hash_table_new_full (g_str_hash, g_str_equal, g_free, g_free);
+
+    for (i = 0; i < listing->entries->len; i++) {
+        ArchiveEntry *e = &g_array_index (listing->entries, ArchiveEntry, i);
+        GtkTreeIter iter, parent;
+        const gchar *path, *slash;
+        gchar *clean, *parent_path, *content_type;
+        GIcon *icon;
+        gsize len;
+
+        /* "./a/b/", "/a/b" and "a/b" all name the same thing. */
+        path = e->path;
+
+        while (g_str_has_prefix (path, "./") || path[0] == '/') {
+            path += path[0] == '/' ? 1 : 2;
+        }
+
+        clean = g_strdup (path);
+        len = strlen (clean);
+
+        while (len > 0 && clean[len - 1] == '/') {
+            clean[--len] = '\0';
+        }
+
+        if (len == 0 || strcmp (clean, ".") == 0) {
+            g_free (clean);
+            continue;
+        }
+
+        if (e->is_dir) {
+            get_archive_folder (store, folders, clean, &iter);
+            g_free (clean);
+            continue;
+        }
+
+        slash = strrchr (clean, '/');
+
+        if (slash != NULL) {
+            parent_path = g_strndup (clean, slash - clean);
+            get_archive_folder (store, folders, parent_path, &parent);
+            g_free (parent_path);
+        }
+
+        content_type = g_content_type_guess (clean, NULL, 0, NULL);
+        icon = g_content_type_get_symbolic_icon (content_type);
+        size = g_format_size (e->size);
+
+        gtk_tree_store_insert_with_values (store, &iter, slash != NULL ? &parent : NULL, -1,
+                                           ARCHIVE_COLUMN_NAME, slash != NULL ? slash + 1 : clean,
+                                           ARCHIVE_COLUMN_SIZE, size,
+                                           ARCHIVE_COLUMN_IS_DIR, FALSE,
+                                           -1);
+
+        /* The first themed name is enough for a list this small. */
+        if (G_IS_THEMED_ICON (icon)) {
+            gtk_tree_store_set (store, &iter, ARCHIVE_COLUMN_ICON,
+                                g_themed_icon_get_names (G_THEMED_ICON (icon))[0], -1);
+        }
+
+        g_object_unref (icon);
+        g_free (content_type);
+        g_free (size);
+        g_free (clean);
+    }
+
+    g_hash_table_unref (folders);
+
+    /* Sorting once at the end beats keeping the order on every insert. */
+    gtk_tree_sortable_set_default_sort_func (GTK_TREE_SORTABLE (store),
+                                             archive_sort_func, NULL, NULL);
+    gtk_tree_sortable_set_sort_column_id (GTK_TREE_SORTABLE (store),
+                                          GTK_TREE_SORTABLE_DEFAULT_SORT_COLUMN_ID,
+                                          GTK_SORT_ASCENDING);
+    gtk_tree_view_set_model (GTK_TREE_VIEW (self->archive_view), GTK_TREE_MODEL (store));
+    g_object_unref (store);
+
+    size = g_format_size (listing->total_size);
+    text = g_strdup_printf (listing->truncated ?
+                            ngettext ("More than %u file, %s uncompressed",
+                                      "More than %u files, %s uncompressed",
+                                      listing->n_files) :
+                            ngettext ("%u file, %s uncompressed",
+                                      "%u files, %s uncompressed",
+                                      listing->n_files),
+                            listing->n_files, size);
+    gtk_label_set_text (GTK_LABEL (self->contents_label), text);
+    gtk_widget_show (self->contents_title);
+    gtk_widget_show (self->contents_label);
+    g_free (text);
+    g_free (size);
+
+    gtk_stack_set_visible_child_name (GTK_STACK (self->stack), "archive");
+    self->showing_icon = FALSE;
+
+    archive_listing_free (listing);
+}
+
+static void
+start_archive (NemoPreviewPane *self)
+{
+    GFile *location;
+    GTask *task;
+    gchar *path;
+
+    location = nemo_file_get_location (self->file);
+    path = g_file_get_path (location);
+    g_object_unref (location);
+
+    /* libarchive needs a local path; remote archives keep the icon. */
+    if (path == NULL) {
+        return;
+    }
+
+    task = g_task_new (NULL, self->cancellable, archive_listed_cb, self);
+    g_task_set_task_data (task, path, g_free);
+    g_task_run_in_thread (task, list_archive_thread);
+    g_object_unref (task);
+}
+
 static void
 file_ready_cb (NemoFile *file,
                gpointer  user_data)
@@ -983,6 +1336,8 @@ file_ready_cb (NemoFile *file,
         start_media (self, g_str_has_prefix (mime_type, "video/"));
     } else if (is_document_type (mime_type)) {
         start_document (self);
+    } else if (is_archive_type (mime_type)) {
+        start_archive (self);
     } else if (g_content_type_is_a (mime_type, "text/plain")) {
         GFile *location = nemo_file_get_location (file);
 
@@ -1028,6 +1383,8 @@ clear_file (NemoPreviewPane *self)
         self->showing_document = FALSE;
     }
 
+    gtk_tree_view_set_model (GTK_TREE_VIEW (self->archive_view), NULL);
+
     if (self->file == NULL) {
         return;
     }
@@ -1053,6 +1410,8 @@ set_file (NemoPreviewPane *self,
     gtk_widget_hide (self->dimensions_label);
     gtk_widget_hide (self->pages_title);
     gtk_widget_hide (self->pages_label);
+    gtk_widget_hide (self->contents_title);
+    gtk_widget_hide (self->contents_label);
 
     nemo_file_monitor_add (file, self, FILE_ATTRIBUTES | NEMO_FILE_ATTRIBUTE_THUMBNAIL);
     g_signal_connect (file, "changed", G_CALLBACK (file_changed_cb), self);
@@ -1183,6 +1542,8 @@ static void
 nemo_preview_pane_init (NemoPreviewPane *self)
 {
     GtkWidget *scrolled, *grid, *controls;
+    GtkTreeViewColumn *column;
+    GtkCellRenderer *renderer;
     PangoAttrList *attrs;
 
     gtk_orientable_set_orientation (GTK_ORIENTABLE (self), GTK_ORIENTATION_VERTICAL);
@@ -1218,6 +1579,30 @@ nemo_preview_pane_init (NemoPreviewPane *self)
     scrolled = gtk_scrolled_window_new (NULL, NULL);
     gtk_container_add (GTK_CONTAINER (scrolled), self->document_view);
     gtk_stack_add_named (GTK_STACK (self->stack), scrolled, "document");
+
+    self->archive_view = gtk_tree_view_new ();
+    gtk_tree_view_set_headers_visible (GTK_TREE_VIEW (self->archive_view), FALSE);
+    gtk_tree_view_set_enable_search (GTK_TREE_VIEW (self->archive_view), FALSE);
+    column = gtk_tree_view_column_new ();
+    gtk_tree_view_column_set_expand (column, TRUE);
+    renderer = gtk_cell_renderer_pixbuf_new ();
+    gtk_tree_view_column_pack_start (column, renderer, FALSE);
+    gtk_tree_view_column_add_attribute (column, renderer, "icon-name", ARCHIVE_COLUMN_ICON);
+    renderer = gtk_cell_renderer_text_new ();
+    g_object_set (renderer, "ellipsize", PANGO_ELLIPSIZE_MIDDLE, NULL);
+    gtk_tree_view_column_pack_start (column, renderer, TRUE);
+    gtk_tree_view_column_add_attribute (column, renderer, "text", ARCHIVE_COLUMN_NAME);
+    gtk_tree_view_append_column (GTK_TREE_VIEW (self->archive_view), column);
+    renderer = gtk_cell_renderer_text_new ();
+    g_object_set (renderer, "xalign", 1.0, NULL);
+    column = gtk_tree_view_column_new_with_attributes (NULL, renderer,
+                                                       "text", ARCHIVE_COLUMN_SIZE, NULL);
+    gtk_tree_view_append_column (GTK_TREE_VIEW (self->archive_view), column);
+    scrolled = gtk_scrolled_window_new (NULL, NULL);
+    gtk_scrolled_window_set_policy (GTK_SCROLLED_WINDOW (scrolled),
+                                    GTK_POLICY_NEVER, GTK_POLICY_AUTOMATIC);
+    gtk_container_add (GTK_CONTAINER (scrolled), self->archive_view);
+    gtk_stack_add_named (GTK_STACK (self->stack), scrolled, "archive");
 
     /* The video widget comes from the player, which is only made once a
      * media file is first selected. */
@@ -1287,7 +1672,9 @@ nemo_preview_pane_init (NemoPreviewPane *self)
     self->dimensions_label = add_info_row (GTK_GRID (grid), 2, _("Dimensions"),
                                            &self->dimensions_title);
     self->pages_label = add_info_row (GTK_GRID (grid), 3, _("Pages"), &self->pages_title);
-    self->modified_label = add_info_row (GTK_GRID (grid), 4, _("Modified"), NULL);
+    self->contents_label = add_info_row (GTK_GRID (grid), 4, _("Contents"),
+                                         &self->contents_title);
+    self->modified_label = add_info_row (GTK_GRID (grid), 5, _("Modified"), NULL);
 
     gtk_widget_show_all (GTK_WIDGET (self));
     gtk_widget_set_no_show_all (GTK_WIDGET (self), TRUE);

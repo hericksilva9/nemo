@@ -107,7 +107,7 @@ endif
 
 nemo_deps = [ cinnamon, gail, glib, gtk, json, math,
   egg, nemo_extension, nemo_private, xapp,
-  xreader_doc, xreader_view, gtksource, gstreamer ]
+  xreader_doc, xreader_view, gtksource, gstreamer, libarchive ]
 
 if exempi_enabled
   nemo_deps += exempi

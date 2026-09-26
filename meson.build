@@ -94,6 +94,7 @@ xreader_doc = dependency('xreader-document-1.5')
 xreader_view = dependency('xreader-view-1.5')
 gtksource = dependency('gtksourceview-4')
 gstreamer = dependency('gstreamer-1.0')
+libarchive = dependency('libarchive')
 
 # Facultative dependencies
 
