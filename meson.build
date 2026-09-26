@@ -89,6 +89,11 @@ gail    = dependency('gail-3.0')
 x11     = dependency('x11')
 xapp    = dependency('xapp',                        version: '>=2.0.0')
 
+# Preview pane renderers
+xreader_doc = dependency('xreader-document-1.5')
+xreader_view = dependency('xreader-view-1.5')
+gtksource = dependency('gtksourceview-4')
+
 # Facultative dependencies
 
 trackerChoice = get_option('tracker')

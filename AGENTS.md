@@ -24,6 +24,9 @@ Packaging build (what CI and Mint use — note it *disables* `meson test`):
 dpkg-buildpackage -us -uc             # see debian/rules for the configure flags
 ```
 
+The preview pane links xreader (`libxreaderview-dev`, `libxreaderdocument-dev`) and GtkSourceView 4
+(`libgtksourceview-4-dev`); these are required, not optional.
+
 Useful meson options (see `meson_options.txt`): `-Dtracker=true|auto`, `-Dgtk_layer_shell=true`
 (Wayland desktop), `-Dexif`, `-Dxmp`, `-Dselinux`, `-Dempty_view`, `-Dgtk_doc=true`,
 `-Ddeprecated_warnings=true`. Debian builds with `debugoptimized`, `gtk_doc=true`,
