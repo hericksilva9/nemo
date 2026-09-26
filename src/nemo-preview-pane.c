@@ -19,6 +19,7 @@
 #include <config.h>
 
 #include "nemo-preview-pane.h"
+#include "nemo-office-renderer.h"
 
 #include <string.h>
 
@@ -547,13 +548,10 @@ document_loaded_cb (EvJob           *job,
 }
 
 static void
-start_document (NemoPreviewPane *self)
+start_document (NemoPreviewPane *self,
+                const gchar     *uri)
 {
-    gchar *uri;
-
-    uri = nemo_file_get_uri (self->file);
     self->document_job = ev_job_load_new (uri);
-    g_free (uri);
 
     g_signal_connect (self->document_job, "finished",
                       G_CALLBACK (document_loaded_cb), self);
@@ -1311,6 +1309,75 @@ start_archive (NemoPreviewPane *self)
     g_object_unref (task);
 }
 
+/* Documents LibreOffice exports to pdf for the document view. Spreadsheets
+ * aren't among them: pages would cut their grid apart. */
+static const gchar *office_types[] = {
+    "application/vnd.oasis.opendocument.text",
+    "application/vnd.oasis.opendocument.text-template",
+    "application/vnd.oasis.opendocument.presentation",
+    "application/vnd.oasis.opendocument.presentation-template",
+    "application/vnd.oasis.opendocument.graphics",
+    "application/msword",
+    "application/vnd.ms-word.document.macroEnabled.12",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+    "application/vnd.openxmlformats-officedocument.wordprocessingml.template",
+    "application/vnd.ms-powerpoint",
+    "application/vnd.ms-powerpoint.presentation.macroEnabled.12",
+    "application/vnd.openxmlformats-officedocument.presentationml.presentation",
+    "application/vnd.openxmlformats-officedocument.presentationml.slideshow",
+    "application/rtf",
+    NULL
+};
+
+static gboolean
+is_office_type (const gchar *mime_type)
+{
+    return g_strv_contains (office_types, mime_type);
+}
+
+static void
+office_pdf_cb (GObject      *source,
+               GAsyncResult *res,
+               gpointer      user_data)
+{
+    NemoPreviewPane *self = user_data;
+    gchar *pdf, *uri;
+
+    pdf = nemo_office_renderer_get_pdf_finish (NEMO_OFFICE_RENDERER (source), res, NULL);
+
+    /* Also NULL once cancelled, when self may be gone. Otherwise LibreOffice
+     * is missing or couldn't read the document, and the icon stays. */
+    if (pdf == NULL) {
+        return;
+    }
+
+    uri = g_filename_to_uri (pdf, NULL, NULL);
+    start_document (self, uri);
+
+    g_free (uri);
+    g_free (pdf);
+}
+
+static void
+start_office (NemoPreviewPane *self)
+{
+    GFile *location;
+    gchar *path;
+
+    location = nemo_file_get_location (self->file);
+    path = g_file_get_path (location);
+    g_object_unref (location);
+
+    /* LibreOffice needs a local path; remote documents keep the icon. */
+    if (path == NULL) {
+        return;
+    }
+
+    nemo_office_renderer_get_pdf_async (nemo_office_renderer_get_default (), path,
+                                        self->cancellable, office_pdf_cb, self);
+    g_free (path);
+}
+
 static void
 file_ready_cb (NemoFile *file,
                gpointer  user_data)
@@ -1334,8 +1401,13 @@ file_ready_cb (NemoFile *file,
     } else if (g_str_has_prefix (mime_type, "video/") ||
                g_str_has_prefix (mime_type, "audio/")) {
         start_media (self, g_str_has_prefix (mime_type, "video/"));
+    } else if (is_office_type (mime_type)) {
+        start_office (self);
     } else if (is_document_type (mime_type)) {
-        start_document (self);
+        gchar *uri = nemo_file_get_uri (file);
+
+        start_document (self, uri);
+        g_free (uri);
     } else if (is_archive_type (mime_type)) {
         start_archive (self);
     } else if (g_content_type_is_a (mime_type, "text/plain")) {
