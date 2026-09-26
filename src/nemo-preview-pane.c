@@ -55,6 +55,7 @@ struct _NemoPreviewPane {
     GtkWidget *pages_label;
     GtkWidget *document_view;
     GtkWidget *media_box;
+    GtkWidget *video_frame;
     GtkWidget *video_widget;
     GtkWidget *audio_image;
     GtkWidget *play_button;
@@ -74,6 +75,8 @@ struct _NemoPreviewPane {
     guint bus_watch_id;
     guint position_id;
     gboolean media_is_video;
+    gboolean gl_confirmed;
+    gboolean gl_failed;
 };
 
 G_DEFINE_TYPE (NemoPreviewPane, nemo_preview_pane, GTK_TYPE_BOX)
@@ -580,7 +583,7 @@ static void
 show_media (NemoPreviewPane *self)
 {
     if (self->media_is_video) {
-        gtk_widget_show (self->video_widget);
+        gtk_widget_show (self->video_frame);
         gtk_widget_hide (self->audio_image);
     } else {
         GdkPixbuf *pixbuf;
@@ -591,13 +594,83 @@ show_media (NemoPreviewPane *self)
         gtk_image_set_from_pixbuf (GTK_IMAGE (self->audio_image), pixbuf);
         g_clear_object (&pixbuf);
 
-        gtk_widget_hide (self->video_widget);
+        gtk_widget_hide (self->video_frame);
         gtk_widget_show (self->audio_image);
     }
 
     update_media_position (self);
     gtk_stack_set_visible_child_name (GTK_STACK (self->stack), "media");
     self->showing_icon = FALSE;
+}
+
+static void start_media (NemoPreviewPane *self,
+                         gboolean         is_video);
+
+/* The frame is kept to the video's own shape, so what surrounds the picture
+ * is the pane rather than bars the sink would paint black. */
+static void
+update_video_aspect (NemoPreviewPane *self)
+{
+    GstPad *pad = NULL;
+    GstCaps *caps;
+    GstStructure *structure;
+    gint width, height, par_n = 1, par_d = 1;
+
+    g_signal_emit_by_name (self->player, "get-video-pad", 0, &pad);
+
+    if (pad == NULL) {
+        return;
+    }
+
+    caps = gst_pad_get_current_caps (pad);
+
+    if (caps != NULL) {
+        structure = gst_caps_get_structure (caps, 0);
+
+        if (gst_structure_get_int (structure, "width", &width) &&
+            gst_structure_get_int (structure, "height", &height) &&
+            width > 0 && height > 0) {
+            gst_structure_get_fraction (structure, "pixel-aspect-ratio", &par_n, &par_d);
+            gtk_aspect_frame_set (GTK_ASPECT_FRAME (self->video_frame), 0.5, 0.5,
+                                  (gfloat) width * par_n / (height * par_d), FALSE);
+        }
+
+        gst_caps_unref (caps);
+    }
+
+    gst_object_unref (pad);
+}
+
+/* Only errors from the GL elements say anything about GL: a file that
+ * fails to decode fails the same with either sink. */
+static gboolean
+is_gl_element (GstObject *object)
+{
+    GstElementFactory *factory;
+
+    if (!GST_IS_ELEMENT (object)) {
+        return FALSE;
+    }
+
+    factory = gst_element_get_factory (GST_ELEMENT (object));
+
+    return factory != NULL &&
+           (g_str_has_prefix (GST_OBJECT_NAME (factory), "gl") ||
+            g_str_has_prefix (GST_OBJECT_NAME (factory), "gtkgl"));
+}
+
+static void
+destroy_player (NemoPreviewPane *self)
+{
+    if (self->player == NULL) {
+        return;
+    }
+
+    stop_media (self);
+    g_clear_handle_id (&self->bus_watch_id, g_source_remove);
+    gtk_container_remove (GTK_CONTAINER (self->video_frame), self->video_widget);
+    self->video_widget = NULL;
+    g_clear_pointer (&self->player, gst_object_unref);
 }
 
 static gboolean
@@ -614,6 +687,12 @@ player_bus_cb (GstBus     *bus,
 
     switch (GST_MESSAGE_TYPE (message)) {
         case GST_MESSAGE_ASYNC_DONE:
+            self->gl_confirmed = TRUE;
+
+            if (self->media_is_video) {
+                update_video_aspect (self);
+            }
+
             /* The first frame is ready: until then the thumbnail stays. */
             if (self->file != NULL && self->showing_icon) {
                 show_media (self);
@@ -626,6 +705,16 @@ player_bus_cb (GstBus     *bus,
             update_media_position (self);
             break;
         case GST_MESSAGE_ERROR:
+            /* A GL sink that has never shown a frame most likely has no GL to
+             * work with, so the file is retried with the plain sink. */
+            if (!self->gl_confirmed && !self->gl_failed && self->file != NULL &&
+                is_gl_element (GST_MESSAGE_SRC (message))) {
+                self->gl_failed = TRUE;
+                destroy_player (self);
+                start_media (self, self->media_is_video);
+                break;
+            }
+
             /* No decoder for it, most likely; the icon stays. */
             stop_media (self);
             if (self->file != NULL && !self->showing_icon) {
@@ -642,7 +731,7 @@ player_bus_cb (GstBus     *bus,
 static gboolean
 ensure_player (NemoPreviewPane *self)
 {
-    GstElement *sink;
+    GstElement *sink, *widget_sink;
     GstBus *bus;
 
     if (self->player != NULL) {
@@ -650,20 +739,44 @@ ensure_player (NemoPreviewPane *self)
     }
 
     self->player = gst_element_factory_make ("playbin", NULL);
-    sink = gst_element_factory_make ("gtksink", NULL);
 
-    if (self->player == NULL || sink == NULL) {
-        g_clear_object (&self->player);
-        g_clear_object (&sink);
+    if (self->player == NULL) {
         return FALSE;
     }
 
     gst_object_ref_sink (self->player);
 
-    g_object_get (sink, "widget", &self->video_widget, NULL);
-    gtk_widget_set_vexpand (self->video_widget, TRUE);
-    gtk_box_pack_start (GTK_BOX (self->media_box), self->video_widget, TRUE, TRUE, 0);
-    gtk_box_reorder_child (GTK_BOX (self->media_box), self->video_widget, 0);
+    /* Scaling on the GPU costs a fraction of doing it per frame on the CPU. */
+    sink = NULL;
+    widget_sink = NULL;
+
+    if (!self->gl_failed) {
+        widget_sink = gst_element_factory_make ("gtkglsink", NULL);
+        sink = gst_element_factory_make ("glsinkbin", NULL);
+
+        if (widget_sink != NULL && sink != NULL) {
+            g_object_set (sink, "sink", widget_sink, NULL);
+        } else {
+            g_clear_pointer (&widget_sink, gst_object_unref);
+            g_clear_pointer (&sink, gst_object_unref);
+        }
+    }
+
+    if (sink == NULL) {
+        self->gl_confirmed = TRUE;
+        sink = widget_sink = gst_element_factory_make ("gtksink", NULL);
+    } else {
+        self->gl_confirmed = FALSE;
+    }
+
+    if (sink == NULL) {
+        g_clear_pointer (&self->player, gst_object_unref);
+        return FALSE;
+    }
+
+    g_object_get (widget_sink, "widget", &self->video_widget, NULL);
+    gtk_container_add (GTK_CONTAINER (self->video_frame), self->video_widget);
+    gtk_widget_show (self->video_widget);
     g_object_unref (self->video_widget);
 
     g_object_set (self->player, "video-sink", sink, NULL);
@@ -971,6 +1084,11 @@ nemo_preview_pane_init (NemoPreviewPane *self)
     self->media_box = gtk_box_new (GTK_ORIENTATION_VERTICAL, 6);
     gtk_stack_add_named (GTK_STACK (self->stack), self->media_box, "media");
 
+    self->video_frame = gtk_aspect_frame_new (NULL, 0.5, 0.5, 16.0 / 9.0, FALSE);
+    gtk_frame_set_shadow_type (GTK_FRAME (self->video_frame), GTK_SHADOW_NONE);
+    gtk_widget_set_vexpand (self->video_frame, TRUE);
+    gtk_box_pack_start (GTK_BOX (self->media_box), self->video_frame, TRUE, TRUE, 0);
+
     self->audio_image = gtk_image_new ();
     gtk_widget_set_vexpand (self->audio_image, TRUE);
     gtk_box_pack_start (GTK_BOX (self->media_box), self->audio_image, TRUE, TRUE, 0);
@@ -1047,11 +1165,7 @@ nemo_preview_pane_dispose (GObject *object)
     forget_view (self);
     clear_file (self);
 
-    if (self->player != NULL) {
-        g_clear_handle_id (&self->bus_watch_id, g_source_remove);
-        gst_object_unref (self->player);
-        self->player = NULL;
-    }
+    destroy_player (self);
 
     G_OBJECT_CLASS (nemo_preview_pane_parent_class)->dispose (object);
 }
