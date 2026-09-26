@@ -76,6 +76,8 @@ struct _NemoPreviewPane {
     guint position_id;
     gboolean media_is_video;
     GdkPixbuf *cover;
+    cairo_surface_t *image_surface;
+    cairo_surface_t *audio_surface;
     gboolean showing_document;
     gboolean gl_confirmed;
     gboolean gl_failed;
@@ -133,10 +135,47 @@ set_image_pixbuf (NemoPreviewPane *self,
     surface = gdk_cairo_surface_create_from_pixbuf (pixbuf,
                                                     gtk_widget_get_scale_factor (GTK_WIDGET (self)),
                                                     NULL);
-    gtk_image_set_from_surface (GTK_IMAGE (self->image), surface);
-    cairo_surface_destroy (surface);
+    g_clear_pointer (&self->image_surface, cairo_surface_destroy);
+    self->image_surface = surface;
+    gtk_widget_queue_draw (self->image);
 
     gtk_stack_set_visible_child (GTK_STACK (self->stack), self->image);
+}
+
+/* Drawn by hand rather than with a GtkImage, whose size request would stop the
+ * pane from shrinking below the loaded picture. Serves both the image page and
+ * the album art. */
+static gboolean
+image_draw_cb (GtkWidget *widget,
+               cairo_t   *cr,
+               gpointer   user_data)
+{
+    NemoPreviewPane *self = user_data;
+    cairo_surface_t *surface;
+    gdouble sx, sy, width, height, factor;
+    gint alloc_width, alloc_height;
+
+    surface = widget == self->image ? self->image_surface : self->audio_surface;
+
+    if (surface == NULL) {
+        return FALSE;
+    }
+
+    cairo_surface_get_device_scale (surface, &sx, &sy);
+    width = cairo_image_surface_get_width (surface) / sx;
+    height = cairo_image_surface_get_height (surface) / sy;
+    alloc_width = gtk_widget_get_allocated_width (widget);
+    alloc_height = gtk_widget_get_allocated_height (widget);
+
+    factor = MIN (1.0, MIN (alloc_width / width, alloc_height / height));
+
+    cairo_translate (cr, (alloc_width - width * factor) / 2, (alloc_height - height * factor) / 2);
+    cairo_scale (cr, factor, factor);
+    cairo_set_source_surface (cr, surface, 0, 0);
+    cairo_pattern_set_filter (cairo_get_source (cr), CAIRO_FILTER_GOOD);
+    cairo_paint (cr);
+
+    return FALSE;
 }
 
 static void
@@ -248,14 +287,21 @@ load_image (NemoPreviewPane *self,
             gint             image_height)
 {
     GFile *location;
-    gint width, height, scale;
+    GdkDisplay *display;
+    GdkMonitor *monitor;
+    GdkRectangle geometry;
+    gint scale;
 
-    get_preview_area (self, &width, &height);
+    /* Decode for the whole monitor rather than the pane's current size, so the
+     * picture stays sharp as the pane grows; drawing scales it down to fit.
+     * Never blow a small image up past its own size. */
+    display = gtk_widget_get_display (GTK_WIDGET (self));
+    monitor = gdk_display_get_monitor_at_window (display, gtk_widget_get_window (GTK_WIDGET (self)));
+    gdk_monitor_get_geometry (monitor, &geometry);
     scale = gtk_widget_get_scale_factor (GTK_WIDGET (self));
 
-    /* Fit the pane, but never blow a small image up past its own size. */
-    self->load_width = width * scale;
-    self->load_height = height * scale;
+    self->load_width = geometry.width * scale;
+    self->load_height = geometry.height * scale;
 
     if (image_width > 0 && image_height > 0 &&
         image_width <= self->load_width && image_height <= self->load_height) {
@@ -586,29 +632,14 @@ static void
 update_audio_picture (NemoPreviewPane *self)
 {
     GdkPixbuf *pixbuf;
-    cairo_surface_t *surface;
-    gint scale, width, height, max_width, max_height;
+    gint scale;
 
     scale = gtk_widget_get_scale_factor (GTK_WIDGET (self));
 
+    /* The art is kept whole; drawing fits it to whatever room the controls
+     * leave. */
     if (self->cover != NULL) {
-        /* Fit the pane, leaving room below for the controls. */
-        get_preview_area (self, &max_width, &max_height);
-        max_width *= scale;
-        max_height = max_height * scale * 3 / 4;
-
-        width = gdk_pixbuf_get_width (self->cover);
-        height = gdk_pixbuf_get_height (self->cover);
-
-        if (width > max_width || height > max_height) {
-            gdouble factor = MIN ((gdouble) max_width / width, (gdouble) max_height / height);
-
-            pixbuf = gdk_pixbuf_scale_simple (self->cover,
-                                              MAX (width * factor, 1), MAX (height * factor, 1),
-                                              GDK_INTERP_BILINEAR);
-        } else {
-            pixbuf = g_object_ref (self->cover);
-        }
+        pixbuf = g_object_ref (self->cover);
     } else {
         pixbuf = nemo_file_get_icon_pixbuf (self->file, NEMO_ICON_SIZE_LARGER, TRUE, scale,
                                             NEMO_FILE_ICON_FLAGS_USE_THUMBNAILS);
@@ -618,9 +649,9 @@ update_audio_picture (NemoPreviewPane *self)
         return;
     }
 
-    surface = gdk_cairo_surface_create_from_pixbuf (pixbuf, scale, NULL);
-    gtk_image_set_from_surface (GTK_IMAGE (self->audio_image), surface);
-    cairo_surface_destroy (surface);
+    g_clear_pointer (&self->audio_surface, cairo_surface_destroy);
+    self->audio_surface = gdk_cairo_surface_create_from_pixbuf (pixbuf, scale, NULL);
+    gtk_widget_queue_draw (self->audio_image);
     g_object_unref (pixbuf);
 }
 
@@ -1164,7 +1195,8 @@ nemo_preview_pane_init (NemoPreviewPane *self)
     gtk_widget_set_vexpand (self->stack, TRUE);
     gtk_box_pack_start (GTK_BOX (self), self->stack, TRUE, TRUE, 0);
 
-    self->image = gtk_image_new ();
+    self->image = gtk_drawing_area_new ();
+    g_signal_connect (self->image, "draw", G_CALLBACK (image_draw_cb), self);
     gtk_stack_add_named (GTK_STACK (self->stack), self->image, "image");
 
     self->text_view = gtk_source_view_new ();
@@ -1197,7 +1229,8 @@ nemo_preview_pane_init (NemoPreviewPane *self)
     gtk_widget_set_vexpand (self->video_frame, TRUE);
     gtk_box_pack_start (GTK_BOX (self->media_box), self->video_frame, TRUE, TRUE, 0);
 
-    self->audio_image = gtk_image_new ();
+    self->audio_image = gtk_drawing_area_new ();
+    g_signal_connect (self->audio_image, "draw", G_CALLBACK (image_draw_cb), self);
     gtk_widget_set_vexpand (self->audio_image, TRUE);
     gtk_box_pack_start (GTK_BOX (self->media_box), self->audio_image, TRUE, TRUE, 0);
 
@@ -1274,6 +1307,8 @@ nemo_preview_pane_dispose (GObject *object)
     clear_file (self);
 
     destroy_player (self);
+    g_clear_pointer (&self->image_surface, cairo_surface_destroy);
+    g_clear_pointer (&self->audio_surface, cairo_surface_destroy);
 
     G_OBJECT_CLASS (nemo_preview_pane_parent_class)->dispose (object);
 }
