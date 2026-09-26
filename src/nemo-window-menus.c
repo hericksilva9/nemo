@@ -1627,6 +1627,11 @@ static const GtkToggleActionEntry main_toggle_entries[] = {
   /* tooltip */              N_("Search documents and folders"),
 			     NULL,
   /* is_active */            FALSE },
+  /* name, stock id */     { NEMO_ACTION_SHOW_HIDE_PREVIEW_PANE, NULL,
+  /* label, accelerator */   N_("_Preview Pane"), "F7",
+  /* tooltip */              N_("Show a preview of the selected file beside the folder view"),
+                             NULL,
+  /* is_active */            FALSE },
   /* name, stock id */     { NEMO_ACTION_SHOW_HIDE_EXTRA_PANE, NULL,
   /* label, accelerator */   N_("E_xtra Pane"), "F3",
   /* tooltip */              N_("Open an extra folder view side-by-side"),
@@ -1890,6 +1895,21 @@ nemo_window_create_toolbar_action_group (NemoWindow *window)
 
     g_object_unref (action);
 
+    action = GTK_ACTION (gtk_toggle_action_new (NEMO_ACTION_SHOW_HIDE_PREVIEW_PANE,
+                         NULL,
+                         _("Show a preview of the selected file beside the folder view"),
+                         NULL));
+    g_settings_bind (nemo_window_state,
+                     NEMO_WINDOW_STATE_SHOW_PREVIEW_PANE,
+                     action,
+                     "active",
+                     G_SETTINGS_BIND_DEFAULT);
+
+    gtk_action_group_add_action (action_group, action);
+    gtk_action_set_icon_name (GTK_ACTION (action), "xsi-sidebar-show-right-symbolic");
+
+    g_object_unref (action);
+
 	navigation_state = nemo_window_get_navigation_state (window);
 	nemo_navigation_state_add_group (navigation_state, action_group);
 
@@ -1930,6 +1950,15 @@ window_menus_set_bindings (NemoWindow *window)
              action,
              "active",
              G_SETTINGS_BIND_DEFAULT);
+
+    action = gtk_action_group_get_action (action_group,
+                                          NEMO_ACTION_SHOW_HIDE_PREVIEW_PANE);
+
+    g_settings_bind (nemo_window_state,
+                     NEMO_WINDOW_STATE_SHOW_PREVIEW_PANE,
+                     action,
+                     "active",
+                     G_SETTINGS_BIND_DEFAULT);
 
 	action = gtk_action_group_get_action (action_group,
 					      NEMO_ACTION_SHOW_HIDE_SIDEBAR);

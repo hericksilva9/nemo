@@ -106,6 +106,13 @@ struct NemoWindowDetails
 
         guint sidebar_width_handler_id;
 
+        /* Preview pane */
+        GtkWidget *preview_paned;
+        GtkWidget *preview_pane;
+        int preview_pane_width;
+        gboolean preview_pane_width_applied;
+        guint preview_pane_width_handler_id;
+
         guint menu_state_changed_id;
 
         gboolean menu_skip_release;

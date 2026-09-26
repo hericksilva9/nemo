@@ -53,6 +53,7 @@ nemoCommon_sources = [
   'nemo-pathbar.c',
   'nemo-places-sidebar.c',
   'nemo-plugin-manager.c',
+  'nemo-preview-pane.c',
   'nemo-previewer.c',
   'nemo-progress-info-widget.c',
   'nemo-progress-ui-handler.c',

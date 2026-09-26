@@ -37,6 +37,7 @@
 #define NEMO_ACTION_UP_ACCEL "UpAccel"
 #define NEMO_ACTION_FORWARD "Forward"
 #define NEMO_ACTION_SHOW_HIDE_SIDEBAR "Show Hide Sidebar"
+#define NEMO_ACTION_SHOW_HIDE_PREVIEW_PANE "Show Hide Preview Pane"
 
 #define NEMO_ACTION_SHOW_HIDE_TOOLBAR "Show Hide Toolbar"
 #define NEMO_ACTION_TOOLBAR_ALWAYS_SHOW_PATHBAR "Toolbar Always Show Pathbar"

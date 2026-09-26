@@ -119,6 +119,8 @@ typedef enum
 #define NEMO_WINDOW_STATE_GEOMETRY				"geometry"
 #define NEMO_WINDOW_STATE_MAXIMIZED				"maximized"
 #define NEMO_WINDOW_STATE_SIDEBAR_WIDTH			"sidebar-width"
+#define NEMO_WINDOW_STATE_SHOW_PREVIEW_PANE     "show-preview-pane"
+#define NEMO_WINDOW_STATE_PREVIEW_PANE_WIDTH    "preview-pane-width"
 #define NEMO_WINDOW_STATE_MY_COMPUTER_EXPANDED  "my-computer-expanded"
 #define NEMO_WINDOW_STATE_BOOKMARKS_EXPANDED    "bookmarks-expanded"
 #define NEMO_WINDOW_STATE_DEVICES_EXPANDED      "devices-expanded"

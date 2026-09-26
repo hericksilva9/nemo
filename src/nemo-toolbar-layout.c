@@ -73,6 +73,7 @@ static const CatalogEntry item_catalog[] = {
     { { NEMO_ACTION_SHOW_THUMBNAILS,      N_("Show Thumbnails"),       "xsi-preview-symbolic",           TRUE  }, NEMO_PREFERENCES_SHOW_SHOW_THUMBNAILS_TOOLBAR },
     { { NEMO_ACTION_SHOW_HIDDEN_FILES,    N_("Show Hidden Files"),     "xsi-view-reveal-symbolic",       TRUE  }, NEMO_PREFERENCES_SHOW_HIDDEN_FILES_TOOLBAR },
     { { NEMO_ACTION_SHOW_HIDE_EXTRA_PANE, N_("Extra Pane"),            "xsi-view-dual-symbolic",         TRUE  }, NEMO_PREFERENCES_SHOW_TOGGLE_EXTRA_PANE_TOOLBAR },
+    { { NEMO_ACTION_SHOW_HIDE_PREVIEW_PANE, N_("Preview Pane"),        "xsi-sidebar-show-right-symbolic", TRUE  }, NULL },
     { { NEMO_ACTION_ICON_VIEW,            N_("Icon view"),             "xsi-view-grid-symbolic",         TRUE  }, NEMO_PREFERENCES_SHOW_ICON_VIEW_ICON_TOOLBAR },
     { { NEMO_ACTION_LIST_VIEW,            N_("List view"),             "xsi-view-list-symbolic",         TRUE  }, NEMO_PREFERENCES_SHOW_LIST_VIEW_ICON_TOOLBAR },
     { { NEMO_ACTION_COMPACT_VIEW,         N_("Compact view"),          "xsi-view-compact-symbolic",      TRUE  }, NEMO_PREFERENCES_SHOW_COMPACT_VIEW_ICON_TOOLBAR },
@@ -169,7 +170,8 @@ build_default_bars (void)
         /* The default reproduces the toolbar Nemo used to ship, so items it
          * never had are left for the user to add. */
         if (entry->info.from_view ||
-            nemo_toolbar_layout_id_is_repeatable (entry->info.id)) {
+            nemo_toolbar_layout_id_is_repeatable (entry->info.id) ||
+            g_strcmp0 (entry->info.id, NEMO_ACTION_SHOW_HIDE_PREVIEW_PANE) == 0) {
             continue;
         }
 

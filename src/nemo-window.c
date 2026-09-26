@@ -48,6 +48,7 @@
 #include "nemo-icon-view.h"
 #include "nemo-list-view.h"
 #include "nemo-statusbar.h"
+#include "nemo-preview-pane.h"
 
 #include <eel/eel-debug.h>
 #include <eel/eel-gtk-extensions.h>
@@ -379,6 +380,90 @@ save_sidebar_width_cb (gpointer user_data)
 			    window->details->side_pane_width);
 
 	return FALSE;
+}
+
+static gboolean
+save_preview_pane_width_cb (gpointer user_data)
+{
+	NemoWindow *window = user_data;
+
+	window->details->preview_pane_width_handler_id = 0;
+
+	g_settings_set_int (nemo_window_state,
+			    NEMO_WINDOW_STATE_PREVIEW_PANE_WIDTH,
+			    window->details->preview_pane_width);
+
+	return FALSE;
+}
+
+static void
+preview_pane_size_allocate_callback (GtkWidget *widget,
+				     GtkAllocation *allocation,
+				     gpointer user_data)
+{
+	NemoWindow *window = user_data;
+	GtkPaned *paned;
+
+	if (allocation->width <= 1) {
+		return;
+	}
+
+	/* The first size the pane gets on showing is whatever the paned came up
+	 * with, so the divider is moved by however far off the saved width that
+	 * is.  Only sizes after that are the user's and get saved. */
+	if (!window->details->preview_pane_width_applied) {
+		window->details->preview_pane_width_applied = TRUE;
+
+		if (allocation->width != window->details->preview_pane_width) {
+			paned = GTK_PANED (window->details->preview_paned);
+			gtk_paned_set_position (paned,
+						gtk_paned_get_position (paned) +
+						allocation->width - window->details->preview_pane_width);
+		}
+
+		return;
+	}
+
+	if (allocation->width == window->details->preview_pane_width) {
+		return;
+	}
+
+	window->details->preview_pane_width = allocation->width;
+
+	g_clear_handle_id (&window->details->preview_pane_width_handler_id, g_source_remove);
+	window->details->preview_pane_width_handler_id =
+		g_timeout_add (100, save_preview_pane_width_cb, window);
+}
+
+static void
+preview_pane_visible_changed (NemoWindow *window)
+{
+	window->details->preview_pane_width_applied = FALSE;
+}
+
+static void
+setup_preview_pane (NemoWindow *window)
+{
+	window->details->preview_pane = nemo_preview_pane_new ();
+	gtk_paned_pack2 (GTK_PANED (window->details->preview_paned),
+			 window->details->preview_pane, FALSE, FALSE);
+
+	window->details->preview_pane_width =
+		g_settings_get_int (nemo_window_state,
+				    NEMO_WINDOW_STATE_PREVIEW_PANE_WIDTH);
+
+	g_signal_connect (window->details->preview_pane, "size-allocate",
+			  G_CALLBACK (preview_pane_size_allocate_callback), window);
+	g_signal_connect_swapped (window->details->preview_pane, "notify::visible",
+				  G_CALLBACK (preview_pane_visible_changed), window);
+
+	g_settings_bind_with_mapping (nemo_window_state,
+				      NEMO_WINDOW_STATE_SHOW_PREVIEW_PANE,
+				      window->details->preview_pane,
+				      "visible",
+				      G_SETTINGS_BIND_GET,
+				      nemo_window_disable_chrome_mapping, NULL,
+				      window, NULL);
 }
 
 /* side pane helpers */
@@ -713,10 +798,17 @@ nemo_window_constructed (GObject *self)
 	gtk_container_add (GTK_CONTAINER (grid), window->details->content_paned);
 	gtk_widget_show (window->details->content_paned);
 
+	window->details->preview_paned = gtk_paned_new (GTK_ORIENTATION_HORIZONTAL);
+	gtk_paned_pack2 (GTK_PANED (window->details->content_paned),
+			 window->details->preview_paned, TRUE, FALSE);
+	gtk_widget_show (window->details->preview_paned);
+
 	vbox = gtk_box_new (GTK_ORIENTATION_VERTICAL, 0);
-	gtk_paned_pack2 (GTK_PANED (window->details->content_paned), vbox,
+	gtk_paned_pack1 (GTK_PANED (window->details->preview_paned), vbox,
 			 TRUE, FALSE);
 	gtk_widget_show (vbox);
+
+	setup_preview_pane (window);
 
 	hpaned = gtk_paned_new (GTK_ORIENTATION_HORIZONTAL);
 	gtk_box_pack_start (GTK_BOX (vbox), hpaned, TRUE, TRUE, 0);
@@ -890,6 +982,8 @@ nemo_window_finalize (GObject *object)
 		g_source_remove (window->details->sidebar_width_handler_id);
 		window->details->sidebar_width_handler_id = 0;
 	}
+
+	g_clear_handle_id (&window->details->preview_pane_width_handler_id, g_source_remove);
 
     g_signal_handlers_disconnect_by_func (nemo_preferences,
                                           nemo_window_sync_thumbnail_action,
@@ -1083,6 +1177,19 @@ nemo_window_set_active_pane (NemoWindow *window,
 	}
 }
 
+/* These hooks also see views that are still loading or about to be dropped,
+ * so the pane follows whatever the active slot shows rather than their view. */
+static void
+nemo_window_sync_preview_pane (NemoWindow *window)
+{
+	NemoWindowSlot *slot;
+
+	slot = nemo_window_get_active_slot (window);
+
+	nemo_preview_pane_set_view (NEMO_PREVIEW_PANE (window->details->preview_pane),
+				    slot != NULL ? slot->content_view : NULL);
+}
+
 /* Make both, the given slot the active slot and its corresponding
  * pane the active pane of the associated window.
  * new_slot may be NULL. */
@@ -1135,6 +1242,9 @@ nemo_window_set_active_slot (NemoWindow *window, NemoWindowSlot *new_slot)
                         /* inform window */
                         nemo_window_connect_content_view (window, new_slot->content_view);
                 }
+
+		/* The new slot may have no view yet to connect. */
+		nemo_window_sync_preview_pane (window);
 
 		// Show active toolbar
 		gboolean show_toolbar;
@@ -1613,6 +1723,8 @@ nemo_window_connect_content_view (NemoWindow *window,
 			  G_CALLBACK (zoom_level_changed_callback),
 			  window);
 
+	nemo_window_sync_preview_pane (window);
+
     /* Update displayed the selected view type in the toolbar and menu. */
     if (slot->pending_location == NULL) {
         nemo_window_sync_view_type (window);
@@ -1637,6 +1749,8 @@ nemo_window_disconnect_content_view (NemoWindow *window,
 	}
 
 	g_signal_handlers_disconnect_by_func (view, G_CALLBACK (zoom_level_changed_callback), window);
+
+	nemo_window_sync_preview_pane (window);
 }
 
 /**

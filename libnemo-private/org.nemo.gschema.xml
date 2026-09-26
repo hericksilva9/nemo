@@ -659,6 +659,16 @@
       <summary>Width of the side pane</summary>
       <description>The default width of the side pane in new windows.</description>
     </key>
+    <key name="show-preview-pane" type="b">
+      <default>false</default>
+      <summary>Show the preview pane</summary>
+      <description>Whether windows show a pane that previews the selected file.</description>
+    </key>
+    <key name="preview-pane-width" type="i">
+      <default>300</default>
+      <summary>Width of the preview pane</summary>
+      <description>The width of the preview pane in new windows.</description>
+    </key>
     <key name="sidebar-bookmark-breakpoint" type="i">
       <default>-1</default>
       <summary>Index of the bookmark list to jump to the dedicated sidebar bookmark section</summary>
