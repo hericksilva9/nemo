@@ -20,6 +20,7 @@
 
 #include "nemo-preview-pane.h"
 #include "nemo-office-renderer.h"
+#include "nemo-office-sheet-view.h"
 
 #include <string.h>
 
@@ -61,6 +62,7 @@ struct _NemoPreviewPane {
     GtkWidget *contents_label;
     GtkWidget *archive_view;
     GtkWidget *document_view;
+    GtkWidget *sheet_view;
     GtkWidget *media_box;
     GtkWidget *video_frame;
     GtkWidget *video_widget;
@@ -1358,8 +1360,37 @@ office_pdf_cb (GObject      *source,
     g_free (pdf);
 }
 
+/* Spreadsheets LibreOffice draws in tiles, a grid rather than pages. */
+static const gchar *spreadsheet_types[] = {
+    "application/vnd.oasis.opendocument.spreadsheet",
+    "application/vnd.oasis.opendocument.spreadsheet-template",
+    "application/vnd.ms-excel",
+    "application/vnd.ms-excel.sheet.macroEnabled.12",
+    "application/vnd.ms-excel.sheet.binary.macroEnabled.12",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+    "application/vnd.openxmlformats-officedocument.spreadsheetml.template",
+    NULL
+};
+
 static void
-start_office (NemoPreviewPane *self)
+sheet_loaded_cb (GObject      *source,
+                 GAsyncResult *res,
+                 gpointer      user_data)
+{
+    NemoPreviewPane *self = user_data;
+
+    /* On cancellation self may be gone. Otherwise the icon stays. */
+    if (!nemo_office_sheet_view_load_finish (NEMO_OFFICE_SHEET_VIEW (source), res, NULL)) {
+        return;
+    }
+
+    gtk_stack_set_visible_child_name (GTK_STACK (self->stack), "sheet");
+    self->showing_icon = FALSE;
+}
+
+static void
+start_office (NemoPreviewPane *self,
+              gboolean         spreadsheet)
 {
     GFile *location;
     gchar *path;
@@ -1373,8 +1404,14 @@ start_office (NemoPreviewPane *self)
         return;
     }
 
-    nemo_office_renderer_get_pdf_async (nemo_office_renderer_get_default (), path,
-                                        self->cancellable, office_pdf_cb, self);
+    if (spreadsheet) {
+        nemo_office_sheet_view_load_async (NEMO_OFFICE_SHEET_VIEW (self->sheet_view), path,
+                                           self->cancellable, sheet_loaded_cb, self);
+    } else {
+        nemo_office_renderer_get_pdf_async (nemo_office_renderer_get_default (), path,
+                                            self->cancellable, office_pdf_cb, self);
+    }
+
     g_free (path);
 }
 
@@ -1402,7 +1439,9 @@ file_ready_cb (NemoFile *file,
                g_str_has_prefix (mime_type, "audio/")) {
         start_media (self, g_str_has_prefix (mime_type, "video/"));
     } else if (is_office_type (mime_type)) {
-        start_office (self);
+        start_office (self, FALSE);
+    } else if (g_strv_contains (spreadsheet_types, mime_type)) {
+        start_office (self, TRUE);
     } else if (is_document_type (mime_type)) {
         gchar *uri = nemo_file_get_uri (file);
 
@@ -1456,6 +1495,7 @@ clear_file (NemoPreviewPane *self)
     }
 
     gtk_tree_view_set_model (GTK_TREE_VIEW (self->archive_view), NULL);
+    nemo_office_sheet_view_clear (NEMO_OFFICE_SHEET_VIEW (self->sheet_view));
 
     if (self->file == NULL) {
         return;
@@ -1651,6 +1691,9 @@ nemo_preview_pane_init (NemoPreviewPane *self)
     scrolled = gtk_scrolled_window_new (NULL, NULL);
     gtk_container_add (GTK_CONTAINER (scrolled), self->document_view);
     gtk_stack_add_named (GTK_STACK (self->stack), scrolled, "document");
+
+    self->sheet_view = nemo_office_sheet_view_new ();
+    gtk_stack_add_named (GTK_STACK (self->stack), self->sheet_view, "sheet");
 
     self->archive_view = gtk_tree_view_new ();
     gtk_tree_view_set_headers_visible (GTK_TREE_VIEW (self->archive_view), FALSE);

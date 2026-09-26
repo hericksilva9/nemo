@@ -54,6 +54,7 @@ nemoCommon_sources = [
   'nemo-places-sidebar.c',
   'nemo-plugin-manager.c',
   'nemo-office-renderer.c',
+  'nemo-office-sheet-view.c',
   'nemo-preview-pane.c',
   'nemo-previewer.c',
   'nemo-progress-info-widget.c',

@@ -120,6 +120,7 @@ Recommends:
  gnome-disk-utility,
  gstreamer1.0-plugins-bad,
  libreoffice-writer,
+ libreoffice-calc,
  libreoffice-impress
 Suggests: eog, evince | pdf-viewer, totem | mp3-decoder, xdg-user-dirs
 Description: file manager and graphical shell for Cinnamon
