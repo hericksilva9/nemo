@@ -154,9 +154,20 @@ setup_root_info_bar (NemoToolbar *self) {
     gtk_box_pack_start (GTK_BOX (self), self->priv->root_bar, TRUE, TRUE, 0);
 }
 
+/* The name sits beside the icon rather than replacing it. */
+static void
+toolbar_button_show_label (GtkWidget   *button,
+                           const gchar *label)
+{
+    gtk_button_set_label (GTK_BUTTON (button), label);
+    gtk_button_set_use_underline (GTK_BUTTON (button), TRUE);
+    gtk_button_set_always_show_image (GTK_BUTTON (button), TRUE);
+}
+
 static GtkWidget *
 toolbar_button_for_action (GtkAction *action,
-                           gboolean   create_toggle)
+                           gboolean   create_toggle,
+                           const gchar *label)
 {
     GtkWidget *button;
     GtkWidget *image;
@@ -172,7 +183,13 @@ toolbar_button_for_action (GtkAction *action,
 
     gtk_button_set_image (GTK_BUTTON (button), image);
     gtk_activatable_set_related_action (GTK_ACTIVATABLE (button), action);
-    gtk_button_set_label (GTK_BUTTON (button), NULL);
+
+    if (label != NULL) {
+        toolbar_button_show_label (button, label);
+    } else {
+        gtk_button_set_label (GTK_BUTTON (button), NULL);
+    }
+
     gtk_widget_set_tooltip_text (button, gtk_action_get_tooltip (action));
     gtk_widget_set_can_focus (button, FALSE);
     gtk_style_context_add_class (gtk_widget_get_style_context (button), GTK_STYLE_CLASS_FLAT);
@@ -182,11 +199,22 @@ toolbar_button_for_action (GtkAction *action,
 
 static GtkWidget *
 toolbar_create_toolbutton (NemoToolbar *self,
-                gboolean create_toggle,
-                const gchar *name)
+                const NemoToolbarItemInfo *info,
+                gboolean show_label)
 {
-    return toolbar_button_for_action (gtk_action_group_get_action (self->priv->action_group, name),
-                                      create_toggle);
+    GtkAction *action = gtk_action_group_get_action (self->priv->action_group, info->id);
+    const gchar *label = NULL;
+
+    /* Several toolbar-only actions were made with a tooltip and no label. */
+    if (show_label) {
+        label = gtk_action_get_short_label (action);
+
+        if (label == NULL || *label == '\0') {
+            label = _(info->label);
+        }
+    }
+
+    return toolbar_button_for_action (action, info->is_toggle, label);
 }
 
 static GtkWindow *
@@ -262,7 +290,8 @@ toolbar_sync_action_states (NemoToolbar *self)
 
 static GtkWidget *
 toolbar_create_action_button (NemoToolbar *self,
-                              const gchar *id)
+                              const gchar *id,
+                              gboolean     show_label)
 {
     NemoAction *action;
     GtkWidget *button;
@@ -284,6 +313,10 @@ toolbar_create_action_button (NemoToolbar *self,
     if (icon != NULL) {
         gtk_button_set_image (GTK_BUTTON (button),
                               gtk_image_new_from_gicon (icon, GTK_ICON_SIZE_BUTTON));
+    }
+
+    if (show_label) {
+        toolbar_button_show_label (button, gtk_action_get_short_label (GTK_ACTION (action)));
     }
 
     gtk_widget_set_tooltip_text (button, gtk_action_get_tooltip (GTK_ACTION (action)));
@@ -445,7 +478,8 @@ toolbar_view_menu_button_clicked (GtkButton   *button,
 
 static GtkWidget *
 toolbar_create_view_button (NemoToolbar               *self,
-                            const NemoToolbarItemInfo *info)
+                            const NemoToolbarItemInfo *info,
+                            gboolean                   show_label)
 {
     GtkWidget *button;
     GtkWidget *image;
@@ -468,10 +502,22 @@ toolbar_create_view_button (NemoToolbar               *self,
 
         box = gtk_box_new (GTK_ORIENTATION_HORIZONTAL, 0);
         gtk_container_add (GTK_CONTAINER (box), image);
+
+        if (show_label) {
+            GtkWidget *label = gtk_label_new_with_mnemonic (_(info->label));
+
+            gtk_widget_set_margin_start (label, 4);
+            gtk_container_add (GTK_CONTAINER (box), label);
+        }
+
         gtk_container_add (GTK_CONTAINER (box), arrow);
         gtk_container_add (GTK_CONTAINER (button), box);
     } else {
         gtk_button_set_image (GTK_BUTTON (button), image);
+
+        if (show_label) {
+            toolbar_button_show_label (button, _(info->label));
+        }
     }
 
     gtk_widget_set_tooltip_text (button, _(info->label));
@@ -580,7 +626,7 @@ build_row (NemoToolbar    *self,
         }
 
         if (nemo_toolbar_layout_id_is_action (l->data)) {
-            GtkWidget *button = toolbar_create_action_button (self, l->data);
+            GtkWidget *button = toolbar_create_action_button (self, l->data, bar->show_labels);
 
             if (button == NULL) {
                 continue;
@@ -601,8 +647,9 @@ build_row (NemoToolbar    *self,
         }
 
         gtk_container_add (GTK_CONTAINER (box),
-                           info->from_view ? toolbar_create_view_button (self, info)
-                                           : toolbar_create_toolbutton (self, info->is_toggle, info->id));
+                           info->from_view ? toolbar_create_view_button (self, info, bar->show_labels)
+                                           : toolbar_create_toolbutton (self, info,
+                                                                        bar->show_labels));
     }
 
     flush_button_box (row, &box, after_pathbar, FALSE);
