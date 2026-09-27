@@ -347,6 +347,34 @@ handle (gchar *request)
     return ret;
 }
 
+/* LibreOffice marks every document it holds with a .~lock file beside it,
+ * and a sheet stays open here while it is shown, so opening it for real
+ * would find it "in use".  Only the preview's own profile is touched; it
+ * holds nothing else worth keeping. */
+static const gchar profile_settings[] =
+    "<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n"
+    "<oor:items xmlns:oor=\"http://openoffice.org/2001/registry\"\n"
+    "           xmlns:xs=\"http://www.w3.org/2001/XMLSchema\"\n"
+    "           xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\">\n"
+    "<item oor:path=\"/org.openoffice.Office.Common/Misc\">"
+    "<prop oor:name=\"UseLocking\" oor:op=\"fuse\"><value>false</value></prop></item>\n"
+    "</oor:items>\n";
+
+static void
+write_profile_settings (const gchar *profile_dir)
+{
+    gchar *user_dir, *path;
+
+    user_dir = g_build_filename (profile_dir, "user", NULL);
+    path = g_build_filename (user_dir, "registrymodifications.xcu", NULL);
+
+    g_mkdir_with_parents (user_dir, 0700);
+    g_file_set_contents (path, profile_settings, -1, NULL);
+
+    g_free (path);
+    g_free (user_dir);
+}
+
 int
 main (int argc, char **argv)
 {
@@ -359,6 +387,7 @@ main (int argc, char **argv)
 
     profile_dir = g_build_filename (g_get_user_cache_dir (), "nemo", "lo-profile", NULL);
     profile = g_filename_to_uri (profile_dir, NULL, NULL);
+    write_profile_settings (profile_dir);
 
     /* A profile of our own, or we would fight over the lock with the user's
      * LibreOffice. */
