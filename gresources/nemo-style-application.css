@@ -95,3 +95,24 @@ NemoDesktopWindow GtkPaned {
     padding-left: 3px;
     padding-right: 3px;
 }
+
+/* Compact toolbar, set per bar by "size": "small" in toolbar-layout.json. Only the buttons'
+ * padding shrinks; icons keep their size. */
+.nemo-toolbar-small button {
+    min-height: 0;
+    min-width: 0;
+    padding: 2px 4px;
+}
+
+/* The bar's own padding, and the location entry: the stack holding it sizes
+ * to it even while the path bar is showing. */
+toolbar.nemo-toolbar-small {
+    padding-top: 1px;
+    padding-bottom: 1px;
+}
+
+.nemo-toolbar-small entry {
+    min-height: 0;
+    padding-top: 2px;
+    padding-bottom: 2px;
+}

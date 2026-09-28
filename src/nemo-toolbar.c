@@ -47,6 +47,7 @@ struct _NemoToolbarPriv {
 
     GList *rows;
     GtkSizeGroup *row_sizes;
+    GtkSizeGroup *small_row_sizes;
 
     GtkWidget *pathbar_holder;
     GtkWidget *pane_rows;
@@ -686,6 +687,10 @@ build_row (NemoToolbar    *self,
     gtk_style_context_add_class (gtk_widget_get_style_context (row),
                                  GTK_STYLE_CLASS_PRIMARY_TOOLBAR);
 
+    if (bar->small) {
+        gtk_style_context_add_class (gtk_widget_get_style_context (row), "nemo-toolbar-small");
+    }
+
     for (l = bar->items; l != NULL; l = l->next) {
         const NemoToolbarItemInfo *info;
 
@@ -775,9 +780,12 @@ rebuild_rows (NemoToolbar *self)
 
     /* An empty toolbar has nothing to give it height, so it would come up as a
      * sliver until its first button lands. The bar holding the path bar is
-     * never empty, so there is always a populated row to take the height from. */
+     * never empty, so there is always a populated row to take the height from.
+     * Small bars get a group of their own, or the normal ones would stretch them. */
     g_clear_object (&self->priv->row_sizes);
+    g_clear_object (&self->priv->small_row_sizes);
     self->priv->row_sizes = gtk_size_group_new (GTK_SIZE_GROUP_VERTICAL);
+    self->priv->small_row_sizes = gtk_size_group_new (GTK_SIZE_GROUP_VERTICAL);
 
     bars = nemo_toolbar_layout_get_bars (self->priv->layout);
 
@@ -788,7 +796,7 @@ rebuild_rows (NemoToolbar *self)
         row = build_row (self, bar);
         gtk_box_pack_start (bar->in_pane ? GTK_BOX (self->priv->pane_rows) : GTK_BOX (self),
                             row, TRUE, TRUE, 0);
-        gtk_size_group_add_widget (self->priv->row_sizes, row);
+        gtk_size_group_add_widget (bar->small ? self->priv->small_row_sizes : self->priv->row_sizes, row);
         self->priv->rows = g_list_append (self->priv->rows, row);
     }
 
@@ -928,6 +936,7 @@ nemo_toolbar_dispose (GObject *obj)
 	g_clear_object (&self->priv->pathbar_holder);
 	g_clear_object (&self->priv->pane_rows);
 	g_clear_object (&self->priv->row_sizes);
+	g_clear_object (&self->priv->small_row_sizes);
 
 	g_list_free (self->priv->rows);
 	self->priv->rows = NULL;

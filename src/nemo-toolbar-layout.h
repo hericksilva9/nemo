@@ -68,6 +68,9 @@ typedef struct {
     /* Each button carries its name beside its icon, not just in its tooltip. */
     gboolean  show_labels;
 
+    /* Trims the buttons' padding; icons keep their size. */
+    gboolean  small;
+
     GList    *items;
 } NemoToolbarBar;
 
