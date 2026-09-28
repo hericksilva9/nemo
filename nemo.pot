@@ -8,7 +8,7 @@ msgid ""
 msgstr ""
 "Project-Id-Version: PACKAGE VERSION\n"
 "Report-Msgid-Bugs-To: \n"
-"POT-Creation-Date: 2026-09-26 16:39-0300\n"
+"POT-Creation-Date: 2026-09-28 02:06-0300\n"
 "PO-Revision-Date: YEAR-MO-DA HO:MI+ZONE\n"
 "Last-Translator: FULL NAME <EMAIL@ADDRESS>\n"
 "Language-Team: LANGUAGE <LL@li.org>\n"
@@ -326,13 +326,13 @@ msgstr ""
 msgid "Name"
 msgstr ""
 
-#: src/nemo-desktop-icon-grid-view.c:1083 src/nemo-preview-pane.c:1671
+#: src/nemo-desktop-icon-grid-view.c:1083 src/nemo-preview-pane.c:1786
 #: libnemo-private/nemo-column-utilities.c:51
 #: gresources/nemo-desktop-overlay.glade:121
 msgid "Size"
 msgstr ""
 
-#: src/nemo-desktop-icon-grid-view.c:1087 src/nemo-preview-pane.c:1670
+#: src/nemo-desktop-icon-grid-view.c:1087 src/nemo-preview-pane.c:1785
 #: libnemo-private/nemo-column-utilities.c:59
 #: gresources/nemo-desktop-overlay.glade:126
 msgid "Type"
@@ -585,39 +585,43 @@ msgstr ""
 msgid "Yesterday"
 msgstr ""
 
-#: src/nemo-file-management-properties.c:1053
+#: src/nemo-file-management-properties.c:1056
 #, c-format
 msgid "Toolbar %d (in pane)"
 msgstr ""
 
-#: src/nemo-file-management-properties.c:1054 src/nemo-window-menus.c:2191
+#: src/nemo-file-management-properties.c:1057 src/nemo-window-menus.c:2191
 #, c-format
 msgid "Toolbar %d"
 msgstr ""
 
-#: src/nemo-file-management-properties.c:1075
+#: src/nemo-file-management-properties.c:1079
 msgid "Not on any toolbar"
 msgstr ""
 
-#: src/nemo-file-management-properties.c:1285
+#: src/nemo-file-management-properties.c:1308
 msgid "Show labels"
 msgstr ""
 
-#: src/nemo-file-management-properties.c:1293
+#: src/nemo-file-management-properties.c:1323
+msgid "Small buttons"
+msgstr ""
+
+#: src/nemo-file-management-properties.c:1331
 msgid ""
 "Drag buttons to reorder them or to move them between toolbars. A toolbar in "
 "the pane is drawn above the tabs, one per pane."
 msgstr ""
 
-#: src/nemo-file-management-properties.c:1307
+#: src/nemo-file-management-properties.c:1345
 msgid "Add Toolbar"
 msgstr ""
 
-#: src/nemo-file-management-properties.c:1308
+#: src/nemo-file-management-properties.c:1346
 msgid "Add Toolbar in Pane"
 msgstr ""
 
-#: src/nemo-file-management-properties.c:1309
+#: src/nemo-file-management-properties.c:1347
 msgid "Remove Toolbar"
 msgstr ""
 
@@ -1555,34 +1559,34 @@ msgid_plural "%u files, %s uncompressed"
 msgstr[0] ""
 msgstr[1] ""
 
-#: src/nemo-preview-pane.c:1445 src/nemo-preview-pane.c:1682
+#: src/nemo-preview-pane.c:1557 src/nemo-preview-pane.c:1797
 msgid "No file selected"
 msgstr ""
 
-#: src/nemo-preview-pane.c:1449
+#: src/nemo-preview-pane.c:1561
 #, c-format
 msgid "%u item selected"
 msgid_plural "%u items selected"
 msgstr[0] ""
 msgstr[1] ""
 
-#: src/nemo-preview-pane.c:1627
+#: src/nemo-preview-pane.c:1742
 msgid "Play or pause"
 msgstr ""
 
-#: src/nemo-preview-pane.c:1672
+#: src/nemo-preview-pane.c:1787
 msgid "Dimensions"
 msgstr ""
 
-#: src/nemo-preview-pane.c:1674
+#: src/nemo-preview-pane.c:1789
 msgid "Pages"
 msgstr ""
 
-#: src/nemo-preview-pane.c:1675
+#: src/nemo-preview-pane.c:1790
 msgid "Contents"
 msgstr ""
 
-#: src/nemo-preview-pane.c:1677
+#: src/nemo-preview-pane.c:1792
 msgid "Modified"
 msgstr ""
 
@@ -2041,7 +2045,7 @@ msgstr ""
 msgid "Dismiss"
 msgstr ""
 
-#: src/nemo-toolbar.c:149
+#: src/nemo-toolbar.c:150
 msgid "Elevated Privileges"
 msgstr ""
 
